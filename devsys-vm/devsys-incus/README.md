@@ -1,6 +1,6 @@
 # DevSys VM — Incus golden image + grouped toolchain
 
-This folder targets a **bare-metal Ubuntu server running Incus**. For a Mac with OrbStack, use `../devsys-orbstack` — same installer, different host scripts. Two design points, both changed from the earlier Homebrew-based version (`../archive/devsys-v2`):
+This folder targets a **bare-metal Ubuntu server running Incus**. For a Mac with OrbStack, use `../devsys-orbstack` — same installer, different host scripts. Two design points, both changed from the earlier Homebrew-based version:
 
 1. **No Homebrew.** `mise` is installed directly, **system-wide, as root**, into a shared store (`/opt/devsys/mise`). The whole install runs as root — no non-root "brew owner" account, no handoff. Every user (root + each dev) runs the pinned tools from shared shims on `PATH`. This resolves the "brew can't run as root" constraint by not using brew.
 2. **Group-based, still version-pinned.** Tools are selected by **group** (`devsys --list`); every version is pinned (`MISE_*` / `NPM_*` in the script) so all VMs are identical. Structure borrowed from Amit's installer, reproducibility kept from the earlier version.
@@ -15,8 +15,7 @@ The intended workflow is a **golden image**: install the toolchain once into a b
 | `build-base.sh` | Incus host | generalize + publish the base VM as image `devsys-base` |
 | `newvm.sh` | Incus host | clone a dev VM from the image, mint a tagged Tailscale key |
 | `template.yaml` | (fetched by newvm) | light per-clone cloud-init (hostname, user, Tailscale join) |
-
-| `devsys-incus-runbook.pdf` | — | the step-by-step runbook (rebuild it with `python3 ../archive/make-runbook.py devsys-incus-runbook.pdf`; needs `reportlab`) |
+| `devsys-incus-runbook.pdf` | — | the step-by-step runbook |
 
 In the gist, `devsys-vm.sh`, `newvm.sh` and `template.yaml` are published as `devsys-v3.sh`, `newvm-v3.sh` and `template-v3.yaml`. The scripts download them by those names, so keep the gist names as they are. (No `Brewfile` — Homebrew is gone.)
 
@@ -98,6 +97,8 @@ With 3.1.6, a default install could **silently skip the `node`, `python`, `cloud
 ```
 
 Mints a single-use key tagged `tag:devsys` + `tag:amit`, launches an Incus VM from `devsys-base`, and the light cloud-init creates the `amit` user and joins Tailscale — seconds, since the toolchain is baked in. Reach it as `ssh amit@amitvm` over the tailnet. Adding another dev's VM is the same command with their name — no console change for an existing dev tag.
+
+`newvm.sh` waits for the clone's first boot to finish, then removes the cloud-init user-data (which holds the auth key) from the instance config. The OAuth secret and the auth key are passed to `curl` and `incus` on stdin, so they never appear in the host's process list.
 
 Developer-login mode (dev owns the node, no admin key): `./newvm.sh amitvm amit --login-link` — prints a `login.tailscale.com/a/…` link to send them (they must already be a tailnet member).
 

@@ -43,12 +43,15 @@ if [[ $MODE != --login-link ]]; then
   CID=${DEVSYS_TS_CLIENT_ID:?"Set DEVSYS_TS_CLIENT_ID or ~/.config/devsys/ts-oauth.env"}
   CSEC=${DEVSYS_TS_CLIENT_SECRET:?"Set DEVSYS_TS_CLIENT_SECRET or ~/.config/devsys/ts-oauth.env"}
 
-  TOKEN=$(curl -s -d "client_id=$CID" -d "client_secret=$CSEC" \
-    https://api.tailscale.com/api/v2/oauth/token | jq -r .access_token)
+  # Secrets go to curl on stdin (printf is a shell builtin), never as arguments,
+  # so they do not show up in the host's process list.
+  TOKEN=$(printf 'client_id=%s&client_secret=%s' "$CID" "$CSEC" | \
+    curl -s -d @- https://api.tailscale.com/api/v2/oauth/token | jq -r .access_token)
   [[ $TOKEN != null && -n $TOKEN ]] || { echo "OAuth token exchange failed" >&2; exit 1; }
 
-  RESP=$(curl -s -X POST https://api.tailscale.com/api/v2/tailnet/-/keys \
-    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  RESP=$(printf 'Authorization: Bearer %s\n' "$TOKEN" | \
+    curl -s -X POST https://api.tailscale.com/api/v2/tailnet/-/keys \
+    -H @- -H "Content-Type: application/json" \
     -d "{\"capabilities\":{\"devices\":{\"create\":{\"reusable\":false,\"ephemeral\":false,\"preauthorized\":true,\"tags\":[\"tag:devsys\",\"tag:${DEVUSER}\"]}}},\"expirySeconds\":3600}")
   KEY=$(jq -r .key <<<"$RESP")
   [[ $KEY == tskey-auth-* ]] || {
@@ -60,20 +63,24 @@ if [[ $MODE != --login-link ]]; then
 fi
 
 # ── Render the light per-clone cloud-init ────────────────────────────────────
-umask 077
-tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
-curl -fsSL --proto '=https' --tlsv1.2 "$TEMPLATE_URL" | \
-  sed -e "s/VMNAME/$VM/g" -e "s/USERNAME/$DEVUSER/g" -e "s|@@TSKEY@@|$KEY|g" > "$tmp"
-grep -q "hostname: $VM" "$tmp" || { echo "Template render failed" >&2; exit 1; }
+# Rendered in the shell, not with sed, so the auth key is never a command
+# argument and never written to a file on the host.
+USERDATA=$(curl -fsSL --proto '=https' --tlsv1.2 "$TEMPLATE_URL")
+USERDATA=${USERDATA//VMNAME/"$VM"}
+USERDATA=${USERDATA//USERNAME/"$DEVUSER"}
+USERDATA=${USERDATA//@@TSKEY@@/"$KEY"}
+[[ $USERDATA == *"hostname: $VM"* ]] || { echo "Template render failed" >&2; exit 1; }
 
 # ── Launch the clone from the golden image ───────────────────────────────────
 incus image info "$IMAGE_ALIAS" >/dev/null 2>&1 || {
   echo "No golden image '$IMAGE_ALIAS'. Build it first: ./build-base.sh" >&2; exit 1; }
 echo "Cloning '$VM' from image '$IMAGE_ALIAS' for user '$DEVUSER'…"
-incus launch "$IMAGE_ALIAS" "$VM" --vm "${PROJ_ARGS[@]}" -c cloud-init.user-data="$(cat "$tmp")"
+# The instance config (with the user-data) is passed as YAML on stdin.
+printf 'config:\n  cloud-init.user-data: |\n    %s\n' "${USERDATA//$'\n'/$'\n    '}" | \
+  incus launch "$IMAGE_ALIAS" "$VM" --vm "${PROJ_ARGS[@]}"
 
+in_vm() { incus exec "$VM" "${PROJ_ARGS[@]}" -- "$@"; }
 if [[ $MODE == --login-link ]]; then
-  in_vm() { incus exec "$VM" "${PROJ_ARGS[@]}" -- "$@"; }
   printf "VM '%s' created without an auth key.\nWaiting for the agent + Tailscale (1-3 min)" "$VM"
   ready="" tries=0
   while (( ++tries <= 60 )); do
@@ -94,5 +101,22 @@ if [[ $MODE == --login-link ]]; then
     echo "Could not obtain the URL yet. Fetch it: incus exec $VM -- devsys ts-login"
   fi
 else
-  echo "VM '$VM' created. It joins the tailnet as it boots — watch admin/machines."
+  # The user-data holds the auth key and stays in the instance config.  Remove
+  # it once cloud-init has used it on first boot.
+  printf "VM '%s' created. Waiting for first boot to finish" "$VM"
+  ready="" tries=0
+  while (( ++tries <= 60 )); do
+    if in_vm true >/dev/null 2>&1; then ready=1; break; fi
+    printf '.'; sleep 5
+  done
+  echo
+  if [[ -n $ready ]]; then
+    in_vm timeout 600 cloud-init status --wait >/dev/null 2>&1 || true
+    incus config unset "$VM" "${PROJ_ARGS[@]}" cloud-init.user-data
+    echo "First boot done; the auth key is removed from the instance config."
+  else
+    echo "Timed out waiting for the VM agent. The auth key (single-use, 1 hour) is still in the" >&2
+    echo "instance config. Remove it later: incus config unset $VM ${PROJ_ARGS[*]} cloud-init.user-data" >&2
+  fi
+  echo "It joins the tailnet as it boots — watch admin/machines."
 fi

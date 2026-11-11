@@ -64,12 +64,15 @@ if [[ $MODE != --login-link ]]; then
   CID=${DEVSYS_TS_CLIENT_ID:?"No Tailscale OAuth client: set DEVSYS_TS_CLIENT_ID, ~/.config/devsys/ts-oauth.env, or the ts-oauth Keychain items"}
   CSEC=${DEVSYS_TS_CLIENT_SECRET:?"No Tailscale OAuth secret: set DEVSYS_TS_CLIENT_SECRET, ~/.config/devsys/ts-oauth.env, or the ts-oauth Keychain items"}
 
-  TOKEN=$(curl -s -d "client_id=$CID" -d "client_secret=$CSEC" \
-    https://api.tailscale.com/api/v2/oauth/token | jq -r .access_token)
+  # Secrets go to curl on stdin (printf is a shell builtin), never as arguments,
+  # so they do not show up in the host's process list.
+  TOKEN=$(printf 'client_id=%s&client_secret=%s' "$CID" "$CSEC" | \
+    curl -s -d @- https://api.tailscale.com/api/v2/oauth/token | jq -r .access_token)
   [[ $TOKEN != null && -n $TOKEN ]] || { echo "OAuth token exchange failed" >&2; exit 1; }
 
-  RESP=$(curl -s -X POST https://api.tailscale.com/api/v2/tailnet/-/keys \
-    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  RESP=$(printf 'Authorization: Bearer %s\n' "$TOKEN" | \
+    curl -s -X POST https://api.tailscale.com/api/v2/tailnet/-/keys \
+    -H @- -H "Content-Type: application/json" \
     -d "{\"capabilities\":{\"devices\":{\"create\":{\"reusable\":false,\"ephemeral\":false,\"preauthorized\":true,\"tags\":[\"tag:devsys\",\"tag:${DEVUSER}\"]}}},\"expirySeconds\":3600}")
   KEY=$(jq -r .key <<<"$RESP")
   [[ $KEY == tskey-auth-* ]] || {
