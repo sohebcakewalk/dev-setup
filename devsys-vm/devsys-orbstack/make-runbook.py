@@ -210,7 +210,8 @@ security add-generic-password -s ts-oauth -a tailscaleclientsecret -w '<secret>'
     code("./newvm.sh beehivekk bh"),
     p("The first argument is the VM name (lowercase letters, digits, hyphens). The second is the developer's "
       "Linux username, and it also decides the tag: user `bh` gets `tag:bh`. Repeat the three steps for every "
-      "developer; nothing on the Mac or in the OAuth client changes between them."),
+      "developer; nothing on the Mac or in the OAuth client changes between them. A developer who should own their "
+      "VM under their own Tailscale account can join with a login link instead (3.4)."),
 
     p("3.2 What `newvm.sh` does", "h2"),
     p("1. **Checks first.** The base must exist and be stopped, and no machine may already have that name. A "
@@ -257,6 +258,28 @@ orbctl run -m beehivekk -u root \\
     p("That user can then no longer run the `devsys` subcommands that need root (`mise`, `npm`, `serve`, "
       "`fix-dns`). Claude, GitHub and git logins are separate for each user."),
 
+    p("3.4 Alternative: the developer joins with a login link", "h2"),
+    p("Use this when a developer should own their VM under their own Tailscale account. It needs no OAuth "
+      "client, no tag and no per-developer SSH rule; the developer only has to be a member of the tailnet "
+      "already (Users → Invite)."),
+    code("./newvm.sh beehivekk bh --login-link"),
+    p("The script clones the VM and creates the user as before, but mints no key. It prints a "
+      "`login.tailscale.com/a/…` link. Send it to the developer; when they open it and sign in, the VM joins "
+      "the tailnet as their device. If no link is printed, fetch one with "
+      "`orbctl run -m beehivekk -u root devsys ts-login`."),
+    table([
+        ["", "Automatic key (3.1)", "Login link (3.4)"],
+        ["VM owner in Tailscale", "the tailnet (tagged `tag:devsys` + `tag:<user>`)", "the developer"],
+        ["Tailscale setup per developer", "one tag and one SSH rule", "none, just the invite"],
+        ["Developer's SSH access", "their own rule (rule 3)", "rule 1: members reach their own devices"],
+        ["Admin `ssh root@<vm>`", "yes (rule 2)", "no: the VM has no `tag:devsys`; use `orbctl run` from the Mac"],
+        ["Who finishes the join", "the script", "the developer, in a browser"],
+        ["Key expiry", "off for tagged devices", "the tailnet's normal expiry applies; the developer "
+                                                 "re-authenticates when it lapses"],
+    ], [0.26, 0.37, 0.37]),
+    p("The two can be mixed: some VMs tagged, some developer-owned. Creating the VM with this flag was tested "
+      "on OrbStack; the browser sign-in that completes the join was not recorded as tested.", "warn"),
+
     p("Phase 4 — Verify and operate", "h1"),
     table([
         ["Check / task", "Command"],
@@ -274,6 +297,7 @@ orbctl run -m beehivekk -u root \\
       "and replaces 3.2.0 with it. That is safe again once `devsys-vm.sh` is republished to the gist as "
       "`devsys-v3.sh`.", "warn"),
 
+    CondPageBreak(280),  # keep the heading with its table
     p("When something stops", "h1"),
     table([
         ["Message", "Fix"],
