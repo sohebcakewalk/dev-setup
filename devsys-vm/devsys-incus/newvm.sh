@@ -16,6 +16,8 @@ usage="usage: newvm.sh <vmname> <devuser> [--login-link] [--project P] [--image 
 VM=${1:?$usage}
 DEVUSER=${2:?$usage}
 shift 2
+[[ $VM =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid VM name: $VM (lowercase letters, digits, hyphens)" >&2; exit 1; }
+[[ $DEVUSER =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "Invalid Linux username: $DEVUSER" >&2; exit 1; }
 
 MODE="" PROJECT="" IMAGE_ALIAS="${DEVSYS_IMAGE:-devsys-base}"
 while (($#)); do
@@ -75,8 +77,10 @@ USERDATA=${USERDATA//@@TSKEY@@/"$KEY"}
 incus image info "$IMAGE_ALIAS" >/dev/null 2>&1 || {
   echo "No golden image '$IMAGE_ALIAS'. Build it first: ./build-base.sh" >&2; exit 1; }
 echo "Cloning '$VM' from image '$IMAGE_ALIAS' for user '$DEVUSER'…"
-# The instance config (with the user-data) is passed as YAML on stdin.
-printf 'config:\n  cloud-init.user-data: |\n    %s\n' "${USERDATA//$'\n'/$'\n    '}" | \
+# The instance config (with the user-data) is passed on stdin.  jq serializes
+# it as JSON, which is valid YAML, so nothing in the template can add other
+# config keys; jq reads the user-data on stdin too.
+printf '%s\n' "$USERDATA" | jq -Rs '{config: {"cloud-init.user-data": .}}' | \
   incus launch "$IMAGE_ALIAS" "$VM" --vm "${PROJ_ARGS[@]}"
 
 in_vm() { incus exec "$VM" "${PROJ_ARGS[@]}" -- "$@"; }
