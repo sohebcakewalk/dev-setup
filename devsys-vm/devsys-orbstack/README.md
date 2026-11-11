@@ -2,7 +2,7 @@
 
 This folder runs the devsys toolchain on a **Mac with OrbStack**. For an Ubuntu server with Incus, use `../devsys-incus`. Only the host side differs between the two:
 
-- The in-guest installer `devsys-vm.sh` is host-agnostic: the same file (3.2.0) sits in both folders.
+- The in-guest installer `devsys-vm.sh` is host-agnostic: the same file (3.3.0) sits in both folders.
 - `build-base.sh` and `newvm.sh` are rewritten for `orbctl`.
 - `template.yaml` is gone: `orbctl clone` takes no cloud-init, so `newvm.sh` runs the per-clone setup itself.
 
@@ -14,7 +14,7 @@ The workflow is still a **golden image**: install the toolchain once into a base
 | --- | --- | --- |
 | `build-base.sh` | the Mac | create the base machine, install the toolchain, generalize it, stop it |
 | `newvm.sh` | the Mac | clone a dev VM from the base, mint a tagged Tailscale key, join the tailnet |
-| `devsys-vm.sh` | inside the guest | the grouped, pinned installer and the `devsys` command (3.2.0) |
+| `devsys-vm.sh` | inside the guest | the grouped, pinned installer and the `devsys` command (3.3.0) |
 | `devsys-orbstack-runbook.pdf` | — | the step-by-step runbook |
 | `make-runbook.py` | the Mac | rebuilds the runbook PDF (needs `reportlab`) |
 
@@ -31,7 +31,34 @@ The workflow is still a **golden image**: install the toolchain once into a base
 | Host filesystem | never mounted | hidden by `--isolated` (inherited by clones) |
 | Per-dev projects | `--project <dev>` | not available |
 
-OrbStack machines share one Linux kernel, so the separation between developers is weaker than between Incus VMs. `--isolated --isolate-network` removes the Mac's home (`/mnt/mac`), the other machines' files, and machine-to-machine networking; Tailscale ACLs stay the front door.
+OrbStack machines share one Linux kernel, so the separation between developers is weaker than between Incus VMs. Tailscale ACLs stay the front door.
+
+## What a developer can and cannot reach
+
+Checked on OrbStack 2.2.4 with a base and two clones, as root inside a clone:
+
+| From inside a VM | Result | What enforces it |
+| --- | --- | --- |
+| The Mac's files (`/mnt/mac`, `/Users`, `/Volumes`) | not present | `--isolated` |
+| Other VMs' files (`/mnt/machines`) | not present | `--isolated` |
+| Mac commands (`mac`, `open`, `pbcopy`), the Mac's SSH agent, the Docker socket | not available | `--isolated` |
+| A port on another VM | blocked | the inbound firewall in each VM (installer 3.3.0) |
+| Services on the Mac, through the Mac's LAN address | **reachable** | nothing — see below |
+| The internet | reachable | intended |
+
+`--isolate-network` alone does not separate the VMs: with it set, one clone still opened a TCP connection to another, and to the Mac's LAN address. Only OrbStack's own host names (`host.orb.internal`, the gateway) were blocked. So each VM carries its own firewall:
+
+- It drops new incoming connections on every interface except Tailscale (`tailscale0`) and loopback. Outgoing traffic is untouched.
+- It is baked into the base, enabled at boot, and shown by `devsys status`. The rules are in `/etc/devsys/firewall.nft`, in their own nftables table.
+- A dev server is therefore reachable over Tailscale (`devsys serve <port>`, or the VM's tailnet address) and not from other VMs. It is also not reachable from the Mac at `<vm>.orb.local`.
+- `DEVSYS_FIREWALL=0 ./build-base.sh` builds a base without it.
+
+What is left open:
+
+- **The Mac's own network services.** A VM can connect to anything the Mac offers on its LAN address (Remote Login, Screen Sharing, File Sharing). Turn off the ones you do not need in System Settings → General → Sharing.
+- **Root inside the VM.** Every developer has passwordless `sudo`, so they can stop their own firewall. That exposes only their own VM; it does not open anyone else's. Two users on one VM can read each other's files.
+- **The shared kernel.** OrbStack says isolated machines "aren't a full security boundary". Use the Incus setup when developers must be strongly separated.
+- **Tailscale's network policy.** The SSH rules decide who can log in. Whether one VM can reach another's ports over the tailnet is decided by the tailnet's access rules, which allow everything by default.
 
 ## One-time: build the golden base
 
@@ -41,7 +68,7 @@ Requires OrbStack and `jq` (ships with current macOS).
 ./build-base.sh
 ```
 
-This creates `devsys-base` from `ubuntu:noble` (isolated), installs every group with no dev user and no Tailscale login, clears the per-machine identity (machine-id, Tailscale state, SSH host keys), and stops the machine.
+This creates `devsys-base` from `ubuntu:resolute` (Ubuntu 26.04 LTS, isolated), installs every group with no dev user and no Tailscale login, clears the per-machine identity (machine-id, Tailscale state, SSH host keys), and stops the machine.
 
 **The stopped base is the image.** Do not start it by hand — a running base regenerates the identity that clones must not share, and `newvm.sh` refuses to clone it. To change it, re-run `build-base.sh`.
 
@@ -51,7 +78,7 @@ Options, as environment variables:
 | --- | --- |
 | `DEVSYS_GROUPS="node python ai"` | install only these groups into the base |
 | `DEVSYS_SHARED_CLAUDE=1` | bake in the shared-Claude setup (see `../devsys-incus/README.md`) |
-| `DEVSYS_BASE_IMAGE=ubuntu:noble` | distro image for a new base |
+| `DEVSYS_BASE_IMAGE=ubuntu:noble` | use another distro image for a new base, here Ubuntu 24.04 LTS (default: `ubuntu:resolute`, 26.04 LTS) |
 | `DEVSYS_SCRIPT_FILE=…` | local installer to use (default: `devsys-vm.sh` next to the script) |
 | `DEVSYS_SCRIPT_URL=…` | installer URL, used when there is no local installer |
 | `DEVSYS_ORB_USER=orbadmin` | name of OrbStack's built-in default user |
@@ -81,7 +108,7 @@ With 3.1.6, a default install **silently skipped the `node`, `python`, `cloud` a
 
 `build-base.sh` uses the `devsys-vm.sh` beside it, so the OrbStack flow works as it stands. The gist still serves 3.1.6 as `devsys-v3.sh`, which matters in two places until it is republished:
 
-- `devsys update` inside a VM downloads the gist copy and puts 3.1.6 back.
+- `devsys update` inside a VM downloads the gist copy and puts 3.1.6 back (a firewall that is already installed stays in place).
 - The Incus flow (`curl … devsys-v3.sh | bash`) runs the same code. The skip was reproduced on OrbStack only; check an Incus base with `devsys status` before trusting it.
 
 ## One-time: Tailscale setup
@@ -154,9 +181,13 @@ Tested on an Apple Silicon Mac (M1 Pro, OrbStack 2.2.4, stock macOS bash 3.2), n
 - The 3.2.0 additions were checked in a clone: `LC_CTYPE=UTF-8` no longer produces locale warnings (it did on the stock image); zsh and bash both get starship, direnv, fzf key bindings and the `gh`/`flyctl`/`tailscale` completions; a login from `$HOME` lands in `~/work`; `$EDITOR` is micro; `z` matches its pinned checksum.
 - The guard paths (existing VM name, running base, bad name, missing base, missing OAuth client) all stop before anything is cloned.
 
+- Installer 3.3.0: a full base built with all 12 groups, and two clones made with `newvm.sh --login-link`. Each clone's connection to a listening port on the other was refused, in both directions; with one firewall stopped the connection went through, and it was refused again once restarted. The firewall came back after a machine restart. Loopback, DNS, outbound HTTPS and Redis kept working, and `devsys status` showed every tool.
+- Ubuntu 26.04 LTS (`ubuntu:resolute`, the default since this change): the same full build and two clones. All 12 groups installed, the dev user got zsh and passwordless `sudo` (26.04 ships `sudo-rs`), the locale fix and the firewall behaved as on 24.04, and `devsys status` showed every tool. The earlier results in this list were on 24.04.
+
 Not tested:
 
 - **Key mode** — minting a real Tailscale key and joining the tailnet. That code is carried over from the Incus `newvm.sh`.
+- **The firewall with a joined VM.** The test clones were not on a tailnet, so Tailscale SSH and `devsys serve` through the firewall were not exercised. The rules accept everything on `tailscale0`.
 - `DEVSYS_SHARED_CLAUDE=1` on OrbStack.
 - The migration recipe above.
 

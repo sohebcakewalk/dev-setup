@@ -122,7 +122,7 @@ story = [
         ["Per-VM config", "cloud-init user-data", "`newvm.sh` runs `devsys install none`"],
         ["OAuth creds", "mode-600 file on host", "env, mode-600 file, or macOS Keychain"],
         ["Host filesystem", "never mounted into guests", "hidden by `--isolated`"],
-        ["Installer", "`devsys-vm.sh` 3.2.0", "the same file"],
+        ["Installer", "`devsys-vm.sh` 3.3.0", "the same file"],
     ], [0.22, 0.36, 0.42]),
 
     p("Phase 1 — Build the golden image (one-time)", "h1"),
@@ -139,7 +139,7 @@ curl -fsSL $GIST/raw/devsys-v3.sh | DEVSYS_UNATTENDED=1 bash
     p("Omitting `DEVSYS_USER` and `DEVSYS_TS_AUTHKEY` installs the pinned tools and nothing VM-specific. Verify: "
       "`exec bash && node --version` → `v26.5.0`, and `devsys status` lists no tool as missing. (Add "
       "`DEVSYS_SHARED_CLAUDE=1` here if you want shared-Claude baked in — see the multi-user section.)"),
-    p("Needs installer 3.1.7 or later (this folder has 3.2.0). With 3.1.6 a default install can skip the `node`, `python`, `cloud` and `ai` "
+    p("Needs installer 3.1.7 or later (this folder has 3.3.0). With 3.1.6 a default install can skip the `node`, `python`, `cloud` and `ai` "
       "groups and still print “Done”: a dpkg prompt about `/etc/zsh/zshenv` swallows the rest of the group list. "
       "This was seen on OrbStack; the code path is the same here. Publish `devsys-incus/devsys-vm.sh` to the "
       "gist as `devsys-v3.sh` before building a base.", "warn"),
@@ -271,8 +271,8 @@ runcmd:
       "join Tailscale dual-tagged & non-ephemeral, `ssh root@` (admin) and `ssh <dev>@` (dev) both connect, "
       "per-dev isolation holds. Shared-Claude (3.1.1) verified across root/soheb/nv on one VM with GitHub kept "
       "per-user.", "good"),
-    p("Installer 3.2.0 (the group-skip fix, plus the shell setup and Mac locale fix) was tested on OrbStack only — "
-      "a full build and a clone — and has not been run on Incus.", "warn"),
+    p("Installers 3.2.0 and 3.3.0 (the group-skip fix, the shell setup and Mac locale fix, and the inbound firewall that 3.3.0 adds: Tailscale and loopback only, `DEVSYS_FIREWALL=0` skips it) were tested on OrbStack only — "
+      "a full build and clones — and have not been run on Incus.", "warn"),
 ]
 
 doc = SimpleDocTemplate(str(OUT), pagesize=A4, leftMargin=MARGIN, rightMargin=MARGIN, topMargin=54,

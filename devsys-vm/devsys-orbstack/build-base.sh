@@ -13,7 +13,7 @@
 # Environment (all optional):
 #   DEVSYS_GROUPS         install groups for the base (default: all)
 #   DEVSYS_SHARED_CLAUDE  1 = bake the shared-Claude setup into the base
-#   DEVSYS_BASE_IMAGE     distro image (default: ubuntu:noble = 24.04 LTS)
+#   DEVSYS_BASE_IMAGE     distro image (default: ubuntu:resolute = 26.04 LTS)
 #   DEVSYS_SCRIPT_FILE    local installer to use (default: devsys-vm.sh next to
 #                         this script, when present)
 #   DEVSYS_SCRIPT_URL     installer URL, used when there is no local installer
@@ -21,7 +21,7 @@
 #   DEVSYS_ORB_USER       name of OrbStack's built-in default user
 set -euo pipefail
 BASE=${1:-devsys-base}
-IMAGE=${DEVSYS_BASE_IMAGE:-ubuntu:noble}
+IMAGE=${DEVSYS_BASE_IMAGE:-ubuntu:resolute}
 SCRIPT_URL=${DEVSYS_SCRIPT_URL:-https://gist.githubusercontent.com/secureedge26/574346b153a83b45062460d5433d8a60/raw/devsys-v3.sh}
 # Installer source: an explicit file, else an explicit URL, else the devsys-vm.sh
 # shipped next to this script, else the gist.

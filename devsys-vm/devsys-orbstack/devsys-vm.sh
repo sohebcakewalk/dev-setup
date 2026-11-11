@@ -21,7 +21,7 @@ set -Eeuo pipefail
 # cloud-init's runcmd can run with HOME unset; guard the first expansion.
 : "${HOME:=/root}"
 
-DEVSYS_VERSION="3.2.0"
+DEVSYS_VERSION="3.3.0"
 GIST_RAW_URL="${DEVSYS_SCRIPT_URL:-https://gist.githubusercontent.com/secureedge26/574346b153a83b45062460d5433d8a60/raw/devsys-v3.sh}"
 SELF_PATH="/usr/local/bin/devsys"
 CFG_DIR="${HOME}/.config/devsys"
@@ -51,7 +51,7 @@ MISE_PYTHON="python@3.12.13"
 MISE_CLOUD="gh@2.96.0 flyctl@0.4.78"
 NPM_CLOUD="neonctl@3.1.1 @tigrisdata/cli@3.7.0"
 NPM_AI="@anthropic-ai/claude-code@2.1.227 @openai/codex@0.147.0 @google/gemini-cli@0.54.4 opencode-ai@1.18.16"
-APT_BASE="ca-certificates curl wget file git gnupg lsb-release sudo unzip zip vim less htop ncdu rsync tmux openssh-client iputils-ping dnsutils net-tools locales bash-completion"
+APT_BASE="ca-certificates curl wget file git gnupg lsb-release sudo unzip zip vim less htop ncdu rsync tmux openssh-client iputils-ping dnsutils net-tools locales bash-completion nftables"
 APT_BUILD="build-essential pkg-config bubblewrap procps python3-pip python3-venv"
 APT_DATA="redis-server postgresql-client"
 # z: arrow-key tmux session/window picker from amitpareek/devsys.  Pinned to a
@@ -65,7 +65,7 @@ GROUP_ORDER=(base build tailscale data mise cli editors shell node python cloud 
 GROUP_DEFAULT="base build tailscale data mise cli editors shell node python cloud ai"
 
 group_desc() { case $1 in
-  base)      echo "apt essentials (git, curl, wget, vim, tmux, htop, rsync…) + Mac locale fix";;
+  base)      echo "apt essentials (git, curl, wget, vim, tmux, htop, rsync…) + Mac locale fix + inbound firewall";;
   build)     echo "compiler toolchain (build-essential, pkg-config, bubblewrap, python3 pip + venv)";;
   tailscale) echo "tailscale + tailscaled (installed, NOT joined)";;
   data)      echo "redis-server, postgresql-client";;
@@ -118,7 +118,53 @@ mise_share() { as_root chmod -R a+rX "$MISE_ROOT" 2>/dev/null || true; }        
 npm_global() { local p; for p in "$@"; do mise_root exec "node@$NODE_PIN" -- npm install -g "$p"; done; mise_root reshim; }
 
 # ── Group installers ─────────────────────────────────────────────────────────
-grp_base()      { apt_update; apt_install $APT_BASE; fix_locale; }
+grp_base()      { apt_update; apt_install $APT_BASE; fix_locale; setup_firewall; }
+# Inbound firewall.  Dev VMs on one host share a network, and on OrbStack the
+# host's --isolate-network does not stop one machine connecting to another, so
+# each VM guards itself: nothing new comes in except over Tailscale or loopback.
+# Outbound is untouched.  The rules live in their own nftables table, so they
+# do not disturb the ones tailscaled manages.  DEVSYS_FIREWALL=0 skips this.
+FIREWALL_RULES="/etc/devsys/firewall.nft"
+setup_firewall() {
+  [[ ${DEVSYS_FIREWALL:-1} == 1 ]] || return 0
+  have nft || { warn "nftables is missing; the inbound firewall was not set up."; return 0; }
+  as_root install -d -m 0755 /etc/devsys
+  as_root tee "$FIREWALL_RULES" >/dev/null <<'EOF'
+# Written by devsys — inbound firewall.  Reload: systemctl restart devsys-firewall
+table inet devsys_fw
+delete table inet devsys_fw
+table inet devsys_fw {
+  chain input {
+    type filter hook input priority filter; policy drop;
+    iifname "lo" accept
+    iifname "tailscale0" accept
+    ct state established,related accept
+    ct state invalid drop
+    meta l4proto { icmp, ipv6-icmp } accept
+    udp dport 68 accept      # DHCP replies
+    udp dport 41641 accept   # Tailscale direct connections (WireGuard-authenticated)
+  }
+}
+EOF
+  as_root chmod 0644 "$FIREWALL_RULES"
+  as_root tee /etc/systemd/system/devsys-firewall.service >/dev/null <<EOF
+[Unit]
+Description=devsys inbound firewall (Tailscale and loopback only)
+Wants=network-pre.target
+Before=network-pre.target
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f $FIREWALL_RULES
+ExecStop=/usr/sbin/nft delete table inet devsys_fw
+[Install]
+WantedBy=multi-user.target
+EOF
+  as_root systemctl daemon-reload 2>/dev/null || true
+  # restart, not start: a re-run must load rules that changed since last time.
+  as_root systemctl enable devsys-firewall >/dev/null 2>&1 || true
+  as_root systemctl restart devsys-firewall 2>/dev/null || warn "The inbound firewall could not be started."
+}
 # A Mac's ssh client forwards LC_CTYPE=UTF-8, which is not a locale name on
 # Linux, so every shell prints "setlocale: LC_CTYPE: cannot change locale
 # (UTF-8)".  Tailscale SSH always forwards it, so make the name valid instead:
@@ -637,6 +683,7 @@ cmd_status() {
     if have "$tool"; then printf '  ✔ %-9s %s\n' "$tool" "$("$tool" --version 2>/dev/null | head -1)"; else printf '  ✗ %-9s missing\n' "$tool"; fi
   done
   systemctl is-active --quiet redis-server 2>/dev/null && ok "Redis: active" || warn "Redis: inactive"
+  systemctl is-active --quiet devsys-firewall 2>/dev/null && ok "Inbound firewall: active (Tailscale and loopback only)" || warn "Inbound firewall: inactive"
   have tailscale && tailscale status 2>/dev/null | head -1 || true
   cmd_logins
 }
@@ -654,6 +701,7 @@ Usage: devsys <command> [args]
                      'devsys install none' skips tools (fast clone: user + TS only).
                      DEVSYS_SHARED_CLAUDE=1 shares one Claude login across all
                      this VM's users (gh/git stay per-user).
+                     DEVSYS_FIREWALL=0 skips the inbound firewall.
   --list             Show install groups and what each pins.
   mise …/npm …       Manage the shared toolchain (e.g. devsys mise ls · npm install -g X).
   status/logins      Tool versions, service state, CLI login state.
