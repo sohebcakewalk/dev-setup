@@ -24,7 +24,7 @@ The workflow is still a **golden image**: install the toolchain once into a base
 | Guest type | full virtual machine | OrbStack machine (shared kernel, lighter isolation) |
 | Golden image | published image `devsys-base` | the **stopped** machine `devsys-base` itself |
 | Per-clone config | cloud-init user-data | `newvm.sh` runs `devsys install none` in the clone |
-| Auth key delivery | written into cloud-init | piped on stdin, never stored |
+| Auth key delivery | written into cloud-init, removed from the instance config after first boot | piped on stdin, never stored |
 | OAuth creds | mode-600 file | env, mode-600 file, or macOS Keychain |
 | Host filesystem | never mounted | hidden by `--isolated` (inherited by clones) |
 | Per-dev projects | `--project <dev>` | not available |
