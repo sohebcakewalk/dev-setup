@@ -73,7 +73,7 @@ It also carries the **3.1.7 fix**, which matters more:
 
 With 3.1.6, a default install could **silently skip the `node`, `python`, `cloud` and `ai` groups and still print "Done"**. The `mise` group writes `/etc/zsh/zshenv` before the `shell` group installs the zsh package, so dpkg stops to ask which version of that file to keep, and its prompt reads the rest of the group list from stdin as the answer.
 
-3.1.7 fixed that (and `devsys status` reporting ripgrep as missing), and `devsys-vm.sh` in this folder is 3.2.0. The gist still serves 3.1.6 as `devsys-v3.sh`, and step 2 above downloads from the gist — so publish this folder's `devsys-vm.sh` there first. The skip was reproduced on OrbStack, not on Incus, but the code path is the same.
+3.1.7 fixed that (and `devsys status` reporting ripgrep as missing), and `devsys-vm.sh` in this folder is 3.3.0. The gist still serves 3.1.6 as `devsys-v3.sh`, and step 2 above downloads from the gist — so publish this folder's `devsys-vm.sh` there first. The skip was reproduced on OrbStack, not on Incus, but the code path is the same.
 
 ## One-time: Tailscale + host setup
 
@@ -121,5 +121,6 @@ Per-user isolation on Incus: use `--project <dev>` to give each developer their 
 ## Status
 
 - **Validated on the Incus host `beehive`** (recorded in the runbook): golden image built and published; clones boot with the pinned toolchain and join Tailscale dual-tagged and non-ephemeral; admin and dev SSH both connect; per-dev isolation holds. Shared-Claude (3.1.1) was verified across root/soheb/nv on one VM.
-- **Installer 3.2.0 has not been run on Incus.** It was tested on OrbStack only (a full 12-group build and a clone on Apple Silicon). Treat the next Incus base build as its validation pass.
+- **Installers 3.2.0 and 3.3.0 have not been run on Incus.** They were tested on OrbStack only (a full 12-group build and clones on Apple Silicon). Treat the next Incus base build as their validation pass.
+- **3.3.0 adds an inbound firewall to every VM**: new incoming connections are dropped except over Tailscale and loopback; outgoing traffic is untouched. It was added because OrbStack machines can reach each other over the network (see `../devsys-orbstack/README.md`). Incus access through `incus exec` and the Web UI terminal does not use the network, but this has not been tried on Incus. `DEVSYS_FIREWALL=0` on the install command skips it.
 - All scripts are `shellcheck`-clean.

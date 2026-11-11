@@ -105,9 +105,10 @@ story = [
     HRFlowable(width="100%", thickness=1, color=TEAL, spaceAfter=9),
 
     p("The system: three scripts in the `devsys-orbstack` folder. `build-base.sh` and `newvm.sh` run on the Mac; "
-      "`devsys-vm.sh` (installer 3.2.0) runs inside the guest. You install the pinned toolchain once into a base "
+      "`devsys-vm.sh` (installer 3.3.0) runs inside the guest. You install the pinned toolchain once into a base "
       "machine called `devsys-base`, and every developer VM is a clone of it. Each clone joins Tailscale tagged "
       "`tag:devsys` + `tag:<dev>`; the admin reaches every VM, each developer reaches only their own."),
+    p("Each VM runs **Ubuntu 24.04 LTS (noble)**, arm64 on Apple Silicon, on OrbStack's shared Linux kernel."),
     table([
         ["Phase", "What", "How often", "Where"],
         ["0", "Prepare the Mac (OrbStack, the scripts)", "once", "the Mac"],
@@ -184,10 +185,9 @@ security add-generic-password -s ts-oauth -a tailscaleclientsecret -w '<secret>'
     code("./build-base.sh"),
     p("One command does the whole phase:"),
     p("1. Creates the machine `devsys-base` from `ubuntu:noble`, with `--isolated --isolate-network` so the Mac's "
-      "home folder, the other machines' files and machine-to-machine networking are all hidden. Clones inherit "
-      "this.", "step"),
-    p("2. Copies the `devsys-vm.sh` beside it into the machine and installs every group — no developer user, no "
-      "Tailscale login.", "step"),
+      "home folder and the other machines' files are hidden. Clones inherit this.", "step"),
+    p("2. Copies the `devsys-vm.sh` beside it into the machine and installs every group, including the inbound "
+      "firewall — no developer user, no Tailscale login.", "step"),
     p("3. Clears the per-machine identity (machine-id, Tailscale state, SSH host keys).", "step"),
     p("4. Stops the machine.", "step"),
     p("On an M1 Pro this took about 3 minutes and 3.4 GB. Check the result with `orbctl list`: `devsys-base` "
@@ -287,6 +287,7 @@ orbctl run -m beehivekk -u root \\
         ["Admin reach (rule 2)", "`ssh root@beehivekk`"],
         ["Dev login (rule 3)", "`ssh bh@beehivekk`"],
         ["Isolation (must fail)", "`ssh bh@`<another dev's VM> → denied"],
+        ["Firewall is on", "`orbctl run -m beehivekk -u root systemctl is-active devsys-firewall` → `active`"],
         ["Health and versions", "`orbctl run -m beehivekk -u root devsys status`"],
         ["Break-glass root shell", "`orbctl run -m beehivekk -u root bash`"],
         ["Change tool versions", "edit the `MISE_*`/`NPM_*` pins in `devsys-vm.sh` → `./build-base.sh` → "
@@ -294,8 +295,39 @@ orbctl run -m beehivekk -u root \\
         ["Retire a VM", "`orbctl delete beehivekk`, then remove it from Tailscale → Machines"],
     ], [0.34, 0.66]),
     p("Do not run `devsys update` inside a VM yet. It downloads the published gist copy, which is still 3.1.6, "
-      "and replaces 3.2.0 with it. That is safe again once `devsys-vm.sh` is republished to the gist as "
+      "and replaces 3.3.0 with it. That is safe again once `devsys-vm.sh` is republished to the gist as "
       "`devsys-v3.sh`.", "warn"),
+
+    CondPageBreak(300),  # keep the heading with its table
+    p("What a developer can and cannot reach", "h1"),
+    p("Checked on OrbStack 2.2.4 with a base and two clones, as root inside a clone."),
+    table([
+        ["From inside a VM", "Result", "What enforces it"],
+        ["The Mac's files (`/mnt/mac`, `/Users`, `/Volumes`)", "not present", "`--isolated`"],
+        ["Other VMs' files (`/mnt/machines`)", "not present", "`--isolated`"],
+        ["Mac commands, the Mac's SSH agent, the Docker socket", "not available", "`--isolated`"],
+        ["A port on another VM", "blocked", "the inbound firewall in each VM"],
+        ["Services on the Mac, via the Mac's LAN address", "**reachable**", "nothing (see below)"],
+        ["The internet", "reachable", "intended"],
+    ], [0.46, 0.20, 0.34]),
+    p("`--isolate-network` alone does not separate the VMs: with it set, one clone still connected to a port on "
+      "another. So installer 3.3.0 gives every VM its own firewall. It drops new incoming connections except "
+      "over Tailscale and loopback, leaves outgoing traffic alone, is baked into the base, starts at boot, and "
+      "is reported by `devsys status`. The rules are in `/etc/devsys/firewall.nft`."),
+    p("A dev server is therefore reachable over Tailscale (`devsys serve <port>`, or the VM's tailnet address) "
+      "but not from other VMs, and not from the Mac at `<vm>.orb.local`. `DEVSYS_FIREWALL=0 ./build-base.sh` "
+      "builds a base without the firewall."),
+    p("What is left open:", "h2"),
+    p("• **The Mac's own network services.** A VM can connect to anything the Mac offers on its LAN address "
+      "(Remote Login, Screen Sharing, File Sharing). Turn off the ones you do not need in System Settings → "
+      "General → Sharing.", "step"),
+    p("• **Root inside the VM.** Every developer has passwordless `sudo` and can stop their own firewall. That "
+      "exposes only their own VM. Two users on one VM can read each other's files.", "step"),
+    p("• **The shared kernel.** OrbStack says isolated machines are not a full security boundary. Use the Incus "
+      "setup when developers must be strongly separated.", "step"),
+    p("• **Tailscale's network policy.** The SSH rules decide who can log in; whether one VM can reach another's "
+      "ports over the tailnet is decided by the tailnet's access rules, which allow everything by default.",
+      "step"),
 
     CondPageBreak(280),  # keep the heading with its table
     p("When something stops", "h1"),
@@ -329,9 +361,12 @@ ssh root@<old-vm> "tar -C /home/bh $EXCLUDES -czf - ." \\
     HRFlowable(width="100%", thickness=0.5, color=GRID, spaceBefore=6, spaceAfter=7),
     p("Tested on an Apple Silicon Mac (M1 Pro, OrbStack 2.2.4): `build-base.sh` built a base with all 12 groups; "
       "`newvm.sh`, run without a Tailscale key, cloned it in 6 seconds with its own hostname and machine-id, the "
-      "dev user, no `/mnt/mac`, and every tool at its pinned version.", "good"),
+      "dev user, no `/mnt/mac`, and every tool at its pinned version. With installer 3.3.0, a connection from one "
+      "clone to a port on the other was refused in both directions, went through when one firewall was stopped, "
+      "and was refused again after a restart.", "good"),
     p("Not yet tested: the Mac Studio itself; steps 2 to 4 and the Tailscale join in 3.2 (minting a real key and "
-      "joining the tailnet — that code is carried over from the Incus `newvm.sh`); the second-user commands in "
+      "joining the tailnet — that code is carried over from the Incus `newvm.sh`); the firewall on a VM that has "
+      "joined a tailnet (Tailscale SSH and `devsys serve` through it); the second-user commands in "
       "3.3 on OrbStack; `DEVSYS_SHARED_CLAUDE=1` on OrbStack; the migration recipe. Try the first VM end to end "
       "before creating the rest.", "warn"),
 ]
