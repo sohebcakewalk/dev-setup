@@ -49,7 +49,7 @@ for m in "${MARKETPLACES[@]}"; do
 done
 
 # 3. every plugin enabled in settings.json
-python3 - "$SRC" <<'PY' | while read -r plugin; do
+python3 -I - "$SRC" <<'PY' | while read -r plugin; do
 import json, sys
 for name, on in json.load(open(sys.argv[1])).get("enabledPlugins", {}).items():
     if on:
