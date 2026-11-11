@@ -1,0 +1,11 @@
+#cloud-config
+# Light per-clone cloud-init for devsys v3 golden-image clones.
+# The toolchain is already baked into the image, so this only: sets the
+# hostname, creates the developer user, and joins Tailscale.  `devsys install
+# none` skips the toolchain and does exactly that (devsys is baked in the image).
+hostname: VMNAME
+runcmd:
+  - >
+    DEVSYS_UNATTENDED=1 DEVSYS_USER=USERNAME
+    DEVSYS_TS_HOSTNAME=VMNAME DEVSYS_TS_AUTHKEY=@@TSKEY@@
+    /usr/local/bin/devsys install none
