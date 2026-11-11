@@ -97,9 +97,9 @@ Use this to give each developer a Linux VM with the same pinned toolchain. The t
 | [`devsys-vm/devsys-incus/`](devsys-vm/devsys-incus) | Bare-metal Ubuntu server running Incus | Full virtual machine |
 | [`devsys-vm/devsys-orbstack/`](devsys-vm/devsys-orbstack) | Mac with OrbStack (Apple Silicon) | OrbStack machine (shared kernel, lighter isolation) |
 
-Each folder has its own README with the full steps. The Incus folder also has a PDF runbook.
+Each folder has its own README with the full steps. Both folders also have a PDF runbook.
 
-[`devsys-vm/archive/`](devsys-vm/archive) keeps the earlier versions (`devsys-v1`, and the Homebrew-based `devsys-v2`) for reference, plus `make-runbook.py`, which builds the runbook PDF. Do not use the archived scripts for new VMs.
+[`devsys-vm/archive/`](devsys-vm/archive) keeps the earlier versions (`devsys-v1`, and the Homebrew-based `devsys-v2`) for reference, plus `make-runbook.py`, which builds the Incus runbook PDF (the OrbStack one is built by the `make-runbook.py` in its own folder). Do not use the archived scripts for new VMs.
 
 ### The scripts
 

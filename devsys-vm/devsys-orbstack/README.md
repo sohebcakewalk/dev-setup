@@ -15,6 +15,8 @@ The workflow is still a **golden image**: install the toolchain once into a base
 | `build-base.sh` | the Mac | create the base machine, install the toolchain, generalize it, stop it |
 | `newvm.sh` | the Mac | clone a dev VM from the base, mint a tagged Tailscale key, join the tailnet |
 | `devsys-vm.sh` | inside the guest | the grouped, pinned installer and the `devsys` command (3.2.0) |
+| `devsys-orbstack-runbook.pdf` | — | the step-by-step runbook |
+| `make-runbook.py` | the Mac | rebuilds the runbook PDF (needs `reportlab`) |
 
 ## What differs from the Incus setup
 
