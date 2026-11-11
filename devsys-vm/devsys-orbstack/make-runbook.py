@@ -108,7 +108,7 @@ story = [
       "`devsys-vm.sh` (installer 3.3.0) runs inside the guest. You install the pinned toolchain once into a base "
       "machine called `devsys-base`, and every developer VM is a clone of it. Each clone joins Tailscale tagged "
       "`tag:devsys` + `tag:<dev>`; the admin reaches every VM, each developer reaches only their own."),
-    p("Each VM runs **Ubuntu 24.04 LTS (noble)**, arm64 on Apple Silicon, on OrbStack's shared Linux kernel."),
+    p("Each VM runs **Ubuntu 26.04 LTS (resolute)**, arm64 on Apple Silicon, on OrbStack's shared Linux kernel."),
     table([
         ["Phase", "What", "How often", "Where"],
         ["0", "Prepare the Mac (OrbStack, the scripts)", "once", "the Mac"],
@@ -184,7 +184,7 @@ security add-generic-password -s ts-oauth -a tailscaleclientsecret -w '<secret>'
     p("Phase 2 — Build the golden base (one-time)", "h1"),
     code("./build-base.sh"),
     p("One command does the whole phase:"),
-    p("1. Creates the machine `devsys-base` from `ubuntu:noble`, with `--isolated --isolate-network` so the Mac's "
+    p("1. Creates the machine `devsys-base` from `ubuntu:resolute` (Ubuntu 26.04 LTS), with `--isolated --isolate-network` so the Mac's "
       "home folder and the other machines' files are hidden. Clones inherit this.", "step"),
     p("2. Copies the `devsys-vm.sh` beside it into the machine and installs every group, including the inbound "
       "firewall — no developer user, no Tailscale login.", "step"),
@@ -198,7 +198,7 @@ security add-generic-password -s ts-oauth -a tailscaleclientsecret -w '<secret>'
         ["Option (environment variable)", "Effect"],
         ["`DEVSYS_GROUPS=\"node python ai\"`", "install only these groups into the base"],
         ["`DEVSYS_SHARED_CLAUDE=1`", "bake in the shared-Claude setup (several Unix users, one Claude login)"],
-        ["`DEVSYS_BASE_IMAGE=ubuntu:noble`", "distro image for a new base"],
+        ["`DEVSYS_BASE_IMAGE=ubuntu:noble`", "use another image for a new base, here Ubuntu 24.04 LTS (default: `ubuntu:resolute`)"],
         ["`./build-base.sh devsys-base-next`", "build under a different base name"],
     ], [0.45, 0.55]),
 
@@ -363,7 +363,7 @@ ssh root@<old-vm> "tar -C /home/bh $EXCLUDES -czf - ." \\
       "`newvm.sh`, run without a Tailscale key, cloned it in 6 seconds with its own hostname and machine-id, the "
       "dev user, no `/mnt/mac`, and every tool at its pinned version. With installer 3.3.0, a connection from one "
       "clone to a port on the other was refused in both directions, went through when one firewall was stopped, "
-      "and was refused again after a restart.", "good"),
+      "and was refused again after a restart. The same build and clone checks passed on Ubuntu 26.04 LTS, the default image.", "good"),
     p("Not yet tested: the Mac Studio itself; steps 2 to 4 and the Tailscale join in 3.2 (minting a real key and "
       "joining the tailnet — that code is carried over from the Incus `newvm.sh`); the firewall on a VM that has "
       "joined a tailnet (Tailscale SSH and `devsys serve` through it); the second-user commands in "

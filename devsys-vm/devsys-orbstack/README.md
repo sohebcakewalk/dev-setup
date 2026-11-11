@@ -68,7 +68,7 @@ Requires OrbStack and `jq` (ships with current macOS).
 ./build-base.sh
 ```
 
-This creates `devsys-base` from `ubuntu:noble` (isolated), installs every group with no dev user and no Tailscale login, clears the per-machine identity (machine-id, Tailscale state, SSH host keys), and stops the machine.
+This creates `devsys-base` from `ubuntu:resolute` (Ubuntu 26.04 LTS, isolated), installs every group with no dev user and no Tailscale login, clears the per-machine identity (machine-id, Tailscale state, SSH host keys), and stops the machine.
 
 **The stopped base is the image.** Do not start it by hand — a running base regenerates the identity that clones must not share, and `newvm.sh` refuses to clone it. To change it, re-run `build-base.sh`.
 
@@ -78,7 +78,7 @@ Options, as environment variables:
 | --- | --- |
 | `DEVSYS_GROUPS="node python ai"` | install only these groups into the base |
 | `DEVSYS_SHARED_CLAUDE=1` | bake in the shared-Claude setup (see `../devsys-incus/README.md`) |
-| `DEVSYS_BASE_IMAGE=ubuntu:noble` | distro image for a new base |
+| `DEVSYS_BASE_IMAGE=ubuntu:noble` | use another distro image for a new base, here Ubuntu 24.04 LTS (default: `ubuntu:resolute`, 26.04 LTS) |
 | `DEVSYS_SCRIPT_FILE=…` | local installer to use (default: `devsys-vm.sh` next to the script) |
 | `DEVSYS_SCRIPT_URL=…` | installer URL, used when there is no local installer |
 | `DEVSYS_ORB_USER=orbadmin` | name of OrbStack's built-in default user |
@@ -182,6 +182,7 @@ Tested on an Apple Silicon Mac (M1 Pro, OrbStack 2.2.4, stock macOS bash 3.2), n
 - The guard paths (existing VM name, running base, bad name, missing base, missing OAuth client) all stop before anything is cloned.
 
 - Installer 3.3.0: a full base built with all 12 groups, and two clones made with `newvm.sh --login-link`. Each clone's connection to a listening port on the other was refused, in both directions; with one firewall stopped the connection went through, and it was refused again once restarted. The firewall came back after a machine restart. Loopback, DNS, outbound HTTPS and Redis kept working, and `devsys status` showed every tool.
+- Ubuntu 26.04 LTS (`ubuntu:resolute`, the default since this change): the same full build and two clones. All 12 groups installed, the dev user got zsh and passwordless `sudo` (26.04 ships `sudo-rs`), the locale fix and the firewall behaved as on 24.04, and `devsys status` showed every tool. The earlier results in this list were on 24.04.
 
 Not tested:
 
