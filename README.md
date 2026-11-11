@@ -38,7 +38,7 @@ It only *lists* plugins. It does not contain the plugin code, logins or tokens.
 ### Set up a new machine or account
 
 ```bash
-git clone https://github.com/soratekstudio/dev-setup.git
+git clone https://github.com/sohebcakewalk/dev-setup.git
 cd dev-setup/claude-config
 ./setup.sh apply
 ```
