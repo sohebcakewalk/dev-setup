@@ -1,0 +1,3 @@
+# Everything version-pinned lives in MISE_TOOLS/NPM_CLIS in devsys-vm.sh;
+# brew only delivers mise.  Add unpinned extras here if you accept drift.
+brew "mise"
