@@ -15,6 +15,8 @@ The workflow is still a **golden image**: install the toolchain once into a base
 | `build-base.sh` | the Mac | create the base machine, install the toolchain, generalize it, stop it |
 | `newvm.sh` | the Mac | clone a dev VM from the base, mint a tagged Tailscale key, join the tailnet |
 | `devsys-vm.sh` | inside the guest | the grouped, pinned installer and the `devsys` command (3.2.0) |
+| `devsys-orbstack-runbook.pdf` | — | the step-by-step runbook |
+| `make-runbook.py` | the Mac | rebuilds the runbook PDF (needs `reportlab`) |
 
 ## What differs from the Incus setup
 
@@ -84,7 +86,9 @@ With 3.1.6, a default install **silently skipped the `node`, `python`, `cloud` a
 
 ## One-time: Tailscale setup
 
-Tags, `tagOwners`, and Tailscale SSH rules are **identical to the Incus setup** — see `../devsys-incus/README.md` or the runbook PDF there. Only the place the OAuth client is stored can differ. `newvm.sh` looks in this order:
+Tags, `tagOwners`, and Tailscale SSH rules are **identical to the Incus setup** — see the runbook PDF in this folder, or `../devsys-incus/README.md`.
+
+The OAuth client (scope Auth Keys: Write) lets `newvm.sh` mint one auth key per VM. Tagging it `tag:devsys` should be enough for every developer, because `tag:devsys` owns itself and each `tag:<dev>`; this follows Tailscale's documentation and has not been run here. Only the place the client is stored differs from Incus. `newvm.sh` looks in this order:
 
 1. `DEVSYS_TS_CLIENT_ID` / `DEVSYS_TS_CLIENT_SECRET` in the environment
 2. `~/.config/devsys/ts-oauth.env` (mode 600), the same file the Incus host uses
@@ -97,15 +101,31 @@ Tags, `tagOwners`, and Tailscale SSH rules are **identical to the Incus setup** 
 ## Per developer: clone a VM
 
 ```bash
-./newvm.sh sohebvm soheb
+./newvm.sh beehivekk bh
 ```
 
-Mints a single-use key tagged `tag:devsys` + `tag:soheb`, clones `devsys-base`, creates the `soheb` user, and joins Tailscale. Reach it as `ssh soheb@sohebvm` over the tailnet.
+Mints a single-use key tagged `tag:devsys` + `tag:bh`, clones `devsys-base`, creates the `bh` user, and joins Tailscale. Reach it as `ssh bh@beehivekk` over the tailnet.
 
 - `--login-link` — no admin key; prints a `login.tailscale.com/a/…` link for the developer (they must already be a tailnet member).
 - `--base NAME` — clone from a different base machine.
 
-Break-glass from the Mac: `orbctl run -m sohebvm -u root bash`. Retire a VM: `orbctl delete sohebvm`, then remove it from Tailscale → Machines.
+The VM joins with `--accept-dns=false`, so it keeps its own DNS and MagicDNS cannot break ordinary lookups such as npm. Turn it on for one VM with `tailscale set --accept-dns=true` inside it.
+
+### A second user on the same VM
+
+```bash
+orbctl run -m beehivekk -u root env DEVSYS_UNATTENDED=1 DEVSYS_USER=admin devsys install none
+```
+
+This adds `admin` beside `bh` with the same shell setup and tools, and leaves Tailscale alone. Add the username to the Tailscale SSH rule of whoever logs in as it. Every user created this way has passwordless `sudo`; to make one an ordinary user:
+
+```bash
+orbctl run -m beehivekk -u root bash -c 'rm -f /etc/sudoers.d/90-devsys-bh; gpasswd -d bh sudo'
+```
+
+That user can then no longer run the `devsys` subcommands that need root. These two commands have not been run on OrbStack.
+
+Break-glass from the Mac: `orbctl run -m beehivekk -u root bash`. Retire a VM: `orbctl delete beehivekk`, then remove it from Tailscale → Machines.
 
 ## Moving a developer over from the Incus server
 
@@ -114,8 +134,8 @@ The Incus VM cannot be imported: `orbctl import` only reads OrbStack's own expor
 The Tailscale ACL does not let one VM SSH into another, so stream through an admin machine that can reach both as root:
 
 ```bash
-ssh root@<old-vm> 'tar -C /home/soheb --exclude=node_modules --exclude=.venv --exclude=.cache -czf - .' \
-  | ssh root@<new-vm> 'tar -C /home/soheb -xzpf -'
+ssh root@<old-vm> 'tar -C /home/bh --exclude=node_modules --exclude=.venv --exclude=.cache -czf - .' \
+  | ssh root@<new-vm> 'tar -C /home/bh -xzpf -'
 ```
 
 - Give the new VM a different Tailscale name while both exist (or it is registered as `<name>-1`). After the old one is retired and removed from Tailscale, rename with `tailscale set --hostname=<name>` inside the VM.
