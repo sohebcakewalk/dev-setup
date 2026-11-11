@@ -1,6 +1,6 @@
-# myScripts
+# dev-setup
 
-Collection of scripts.
+Scripts for setting up development machines and VMs.
 
 | Path | What it is |
 |---|---|
@@ -38,8 +38,8 @@ It only *lists* plugins. It does not contain the plugin code, logins or tokens.
 ### Set up a new machine or account
 
 ```bash
-git clone <this-repo-url> myScripts
-cd myScripts/claude-config
+git clone https://github.com/soratekstudio/dev-setup.git
+cd dev-setup/claude-config
 ./setup.sh apply
 ```
 
@@ -56,7 +56,7 @@ DRY_RUN=1 ./setup.sh apply
 On the machine where you changed settings or plugins:
 
 ```bash
-cd myScripts/claude-config
+cd dev-setup/claude-config
 ./setup.sh save
 git add settings.json
 git commit -m "Update Claude settings"
@@ -66,7 +66,7 @@ git push
 On every other machine or account:
 
 ```bash
-cd myScripts
+cd dev-setup
 git pull
 cd claude-config
 ./setup.sh apply
@@ -115,7 +115,7 @@ Each folder has its own README with the full steps. The Incus folder also has a 
 Build the base once, then clone a VM per developer:
 
 ```bash
-cd myScripts/devsys-vm/devsys-orbstack   # or devsys-incus
+cd dev-setup/devsys-vm/devsys-orbstack   # or devsys-incus
 ./build-base.sh
 ./newvm.sh <vm-name> <dev-user>
 ```
