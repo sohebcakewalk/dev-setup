@@ -1,0 +1,9 @@
+#cloud-config
+hostname: VMNAME
+runcmd:
+  - >
+    curl -fsSL --proto '=https' --tlsv1.2
+    https://gist.githubusercontent.com/secureedge26/574346b153a83b45062460d5433d8a60/raw/devsys-vm.sh
+    | DEVSYS_UNATTENDED=1 DEVSYS_USER=USERNAME
+    DEVSYS_TS_HOSTNAME=VMNAME DEVSYS_TS_AUTHKEY=@@TSKEY@@
+    bash
