@@ -144,7 +144,7 @@ cd dev-setup/devsys-vm/devsys-orbstack
     table([
         ["Tag", "Owner"],
         ["`tag:devsys`", "`autogroup:admin, tag:devsys`"],
-        ["`tag:soheb`", "`tag:devsys`"],
+        ["`tag:bh`", "`tag:devsys`"],
         ["(one per future dev)", "`tag:devsys`"],
     ], [0.45, 0.55]),
     p("`tag:devsys` must own itself — a key carrying two tags needs every tag, including `tag:devsys`, to pass "
@@ -155,7 +155,7 @@ cd dev-setup/devsys-vm/devsys-orbstack
         ["#", "Sources", "Destination", "Users"],
         ["1", "`autogroup:member`", "`autogroup:self`", "`autogroup:nonroot`, `root`"],
         ["2", "`autogroup:admin`", "`tag:devsys`", "`root`"],
-        ["3", "`soheb@example.com`", "`tag:soheb`", "`soheb`"],
+        ["3", "`bh@example.com`", "`tag:bh`", "`bh`"],
         ["+1 per dev", "`<dev>@example.com`", "`tag:<dev>`", "`<dev>`"],
     ], [0.14, 0.30, 0.24, 0.32]),
     p("Rule 2 is the admin's root reach across every VM; rules 3 and up let each developer into only their own "
@@ -163,8 +163,13 @@ cd dev-setup/devsys-vm/devsys-orbstack
 
     CondPageBreak(150),
     p("1.3 OAuth client, stored on the Mac", "h2"),
-    p("Settings → OAuth clients → scope Auth Keys: Write, Tags = `tag:devsys` plus every person-tag. `newvm.sh` "
-      "uses it to mint one auth key per VM. Store the client ID and secret in the macOS Keychain:"),
+    p("The OAuth client is what lets `newvm.sh` create a fresh Tailscale auth key for each VM, so nobody has to "
+      "generate and paste keys by hand. Create it once: Settings → Trust credentials → Credential → OAuth, scope "
+      "Auth Keys: Write, tag `tag:devsys`."),
+    p("That one tag is enough for every developer. A client may mint a key for any tag its own tag owns, and "
+      "`tag:devsys` owns itself and each `tag:<dev>` (1.1). This follows Tailscale's documentation and has not "
+      "been run here; if minting is refused for a new developer, add their tag to the client as well."),
+    p("Store the client ID and secret in the macOS Keychain:"),
     code("""
 security add-generic-password -s ts-oauth -a tailscaleclientid -w '<id>'
 security add-generic-password -s ts-oauth -a tailscaleclientsecret -w '<secret>'
@@ -172,6 +177,8 @@ security add-generic-password -s ts-oauth -a tailscaleclientsecret -w '<secret>'
     p("`newvm.sh` looks for the client in this order: the environment (`DEVSYS_TS_CLIENT_ID`, "
       "`DEVSYS_TS_CLIENT_SECRET`), then the mode-600 file `~/.config/devsys/ts-oauth.env` defining the same two "
       "variables, then the Keychain items above."),
+    p("The secret is long-lived: anyone who can read it can mint keys for these tags. Keep it only in the "
+      "Keychain or the mode-600 file, and revoke the client in Tailscale if the Mac is ever compromised.", "warn"),
 
     p("Phase 2 — Build the golden base (one-time)", "h1"),
     code("./build-base.sh"),
@@ -196,38 +203,72 @@ security add-generic-password -s ts-oauth -a tailscaleclientsecret -w '<secret>'
     ], [0.45, 0.55]),
 
     p("Phase 3 — Clone a developer VM (per developer)", "h1"),
-    p("First, in the Tailscale admin console, give the developer their tag and SSH rule (Phase 1.1 and 1.2) and "
-      "add the new tag to the OAuth client. Then, on the Mac:"),
-    code("./newvm.sh sohebvm soheb"),
-    p("The first argument is the VM name (lowercase letters, digits, hyphens), the second the developer's Linux "
-      "username. The script:"),
-    p("1. Checks that the base exists and is stopped, and that no machine has that name.", "step"),
-    p("2. Mints a Tailscale auth key tagged `tag:devsys` + `tag:soheb`: single-use, not ephemeral, "
-      "pre-approved, valid for one hour.", "step"),
-    p("3. Clones `devsys-base` and starts the clone.", "step"),
-    p("4. Inside the clone, creates the user and joins Tailscale with SSH enabled. The key is passed on stdin "
-      "and is never written to a file or a command line.", "step"),
+    p("3.1 Checklist for each developer", "h2"),
+    p("1. Tailscale → Tags: add `tag:<user>`, owned by `tag:devsys` (1.1).", "step"),
+    p("2. Tailscale → SSH rules: add the developer's email → `tag:<user>` → `<user>` (1.2).", "step"),
+    p("3. On the Mac, in the `devsys-orbstack` folder:", "step"),
+    code("./newvm.sh beehivekk bh"),
+    p("The first argument is the VM name (lowercase letters, digits, hyphens). The second is the developer's "
+      "Linux username, and it also decides the tag: user `bh` gets `tag:bh`. Repeat the three steps for every "
+      "developer; nothing on the Mac or in the OAuth client changes between them."),
+
+    p("3.2 What `newvm.sh` does", "h2"),
+    p("1. **Checks first.** The base must exist and be stopped, and no machine may already have that name. A "
+      "failed check stops the script before anything is asked of Tailscale.", "step"),
+    p("2. **Reads the OAuth client** from the environment, the mode-600 file, or the Keychain (1.3).", "step"),
+    p("3. **Gets a temporary access token** from Tailscale with that client.", "step"),
+    p("4. **Mints an auth key** tagged `tag:devsys` + `tag:bh`: single-use, not ephemeral, pre-approved, "
+      "valid for one hour.", "step"),
+    p("5. **Clones** `devsys-base` and starts the clone.", "step"),
+    p("6. **Sets up the clone**: clears any Tailscale state, creates the user, and joins the tailnet with "
+      "`tailscale up --ssh --accept-dns=false --accept-routes=true`.", "step"),
+    p("The key never appears on screen, in a file, or in a command line; it is handed to the clone on stdin. The "
+      "tags are always right because the script derives them from the username."),
     table([
-        ["Flag", "Effect"],
-        ["`--login-link`", "no admin key: prints a `login.tailscale.com/a/…` link to send to the developer, who "
-                           "must already be a tailnet member and becomes the node's owner"],
-        ["`--base NAME`", "clone from a different base machine"],
-    ], [0.25, 0.75]),
-    p("If setup inside the clone fails, the VM is left in place. Inspect it with `orbctl run -m <vm> -u root bash`, "
-      "or remove it with `orbctl delete <vm>` and run `newvm.sh` again."),
+        ["Key setting", "Why it matters"],
+        ["Not ephemeral", "an ephemeral VM is removed from the tailnet whenever it goes offline"],
+        ["Both tags", "`tag:devsys` gives the admin root reach; `tag:<user>` is what the developer's SSH rule "
+                      "points at"],
+        ["Pre-approved", "the VM joins without waiting for device approval"],
+        ["Single-use, one hour", "a leaked key cannot add a second machine"],
+    ], [0.30, 0.70]),
+    p("`--accept-dns=false` keeps the VM on its own DNS, so Tailscale's MagicDNS cannot break ordinary lookups "
+      "such as npm. You still reach the VM by name from your Mac. To let one VM look up other tailnet machines "
+      "by short name, run `tailscale set --accept-dns=true` inside it."),
+    p("To clone from a different base machine, add `--base NAME`. If setup inside the clone fails, the VM is "
+      "left in place: inspect it with `orbctl run -m <vm> -u root bash`, or remove it with `orbctl delete <vm>` "
+      "and run `newvm.sh` again."),
+
+    p("3.3 A second user on the same VM", "h2"),
+    p("To add another Linux user to an existing VM, for example `admin` beside `bh`:"),
+    code("""
+orbctl run -m beehivekk -u root \\
+  env DEVSYS_UNATTENDED=1 DEVSYS_USER=admin devsys install none
+"""),
+    p("The new user gets the same shell setup, `~/work` folder and tools. Tailscale is not touched. Then add the "
+      "username to the SSH rule of whoever will log in as it: rule 2 for tailnet admins (users `root`, `admin`), "
+      "or the developer's own rule (users `bh`, `admin`)."),
+    p("Every user the script creates has passwordless `sudo`, so `admin` has no more rights than `bh`. To make "
+      "one of them an ordinary user, remove its sudo access:"),
+    code("""
+orbctl run -m beehivekk -u root \\
+  bash -c 'rm -f /etc/sudoers.d/90-devsys-bh; gpasswd -d bh sudo'
+"""),
+    p("That user can then no longer run the `devsys` subcommands that need root (`mise`, `npm`, `serve`, "
+      "`fix-dns`). Claude, GitHub and git logins are separate for each user."),
 
     p("Phase 4 — Verify and operate", "h1"),
     table([
         ["Check / task", "Command"],
         ["List machines and their state", "`orbctl list`"],
-        ["Admin reach (rule 2)", "`ssh root@sohebvm`"],
-        ["Dev login (rule 3)", "`ssh soheb@sohebvm`"],
-        ["Isolation (must fail)", "`ssh soheb@`<another dev's VM> → denied"],
-        ["Health and versions", "`orbctl run -m sohebvm -u root devsys status`"],
-        ["Break-glass root shell", "`orbctl run -m sohebvm -u root bash`"],
+        ["Admin reach (rule 2)", "`ssh root@beehivekk`"],
+        ["Dev login (rule 3)", "`ssh bh@beehivekk`"],
+        ["Isolation (must fail)", "`ssh bh@`<another dev's VM> → denied"],
+        ["Health and versions", "`orbctl run -m beehivekk -u root devsys status`"],
+        ["Break-glass root shell", "`orbctl run -m beehivekk -u root bash`"],
         ["Change tool versions", "edit the `MISE_*`/`NPM_*` pins in `devsys-vm.sh` → `./build-base.sh` → "
                                  "new clones get them; existing clones are not touched"],
-        ["Retire a VM", "`orbctl delete sohebvm`, then remove it from Tailscale → Machines"],
+        ["Retire a VM", "`orbctl delete beehivekk`, then remove it from Tailscale → Machines"],
     ], [0.34, 0.66]),
     p("Do not run `devsys update` inside a VM yet. It downloads the published gist copy, which is still 3.1.6, "
       "and replaces 3.2.0 with it. That is safe again once `devsys-vm.sh` is republished to the gist as "
@@ -243,9 +284,10 @@ security add-generic-password -s ts-oauth -a tailscaleclientsecret -w '<secret>'
         ["`A machine named '…' already exists`", "pick another name, or `orbctl delete` the old one"],
         ["`No Tailscale OAuth client`", "store the client ID and secret (Phase 1.3)"],
         ["`OAuth token exchange failed`", "the stored ID or secret is wrong or revoked"],
-        ["`Auth key mint failed`", "`tag:<dev>` is missing, is not owned by `tag:devsys`, is not on the OAuth "
-                                   "client, or `tag:devsys` does not own itself (Phase 1.1)"],
-        ["“not permit you to SSH as user X”", "the per-developer SSH rule is missing (Phase 1.2)"],
+        ["`Auth key mint failed`", "`tag:<dev>` is missing or not owned by `tag:devsys`, or `tag:devsys` "
+                                   "does not own itself (Phase 1.1). If both are right, add `tag:<dev>` to the "
+                                   "OAuth client (1.3)"],
+        ["“not permit you to SSH as user X”", "no SSH rule lists that username for this VM's tag (Phase 1.2, 3.3)"],
     ], [0.42, 0.58]),
 
     p("Moving a developer over from the Incus server", "h1"),
@@ -253,8 +295,8 @@ security add-generic-password -s ts-oauth -a tailscaleclientsecret -w '<secret>'
       "Tailscale name, then copy the home folder through an admin machine that reaches both VMs as root:"),
     code("""
 EXCLUDES='--exclude=node_modules --exclude=.venv --exclude=.cache'
-ssh root@<old-vm> "tar -C /home/soheb $EXCLUDES -czf - ." \\
-  | ssh root@<new-vm> 'tar -C /home/soheb -xzpf -'
+ssh root@<old-vm> "tar -C /home/bh $EXCLUDES -czf - ." \\
+  | ssh root@<new-vm> 'tar -C /home/bh -xzpf -'
 """),
     p("Reinstall `node_modules` and `.venv` in each repo afterwards. Do not copy `/opt/devsys/mise`, "
       "`/var/lib/tailscale` or `/etc/machine-id`. Once the old VM is retired, rename the new one inside the VM "
@@ -262,11 +304,12 @@ ssh root@<old-vm> "tar -C /home/soheb $EXCLUDES -czf - ." \\
 
     HRFlowable(width="100%", thickness=0.5, color=GRID, spaceBefore=6, spaceAfter=7),
     p("Tested on an Apple Silicon Mac (M1 Pro, OrbStack 2.2.4): `build-base.sh` built a base with all 12 groups; "
-      "`newvm.sh --login-link` cloned it in 6 seconds with its own hostname and machine-id, the dev user, no "
-      "`/mnt/mac`, and every tool at its pinned version.", "good"),
-    p("Not yet tested: the Mac Studio itself; key mode (minting a real Tailscale key and joining the tailnet — "
-      "that code is carried over from the Incus `newvm.sh`); `DEVSYS_SHARED_CLAUDE=1` on OrbStack; the migration "
-      "recipe.", "warn"),
+      "`newvm.sh`, run without a Tailscale key, cloned it in 6 seconds with its own hostname and machine-id, the "
+      "dev user, no `/mnt/mac`, and every tool at its pinned version.", "good"),
+    p("Not yet tested: the Mac Studio itself; steps 2 to 4 and the Tailscale join in 3.2 (minting a real key and "
+      "joining the tailnet — that code is carried over from the Incus `newvm.sh`); the second-user commands in "
+      "3.3 on OrbStack; `DEVSYS_SHARED_CLAUDE=1` on OrbStack; the migration recipe. Try the first VM end to end "
+      "before creating the rest.", "warn"),
 ]
 
 doc = SimpleDocTemplate(str(OUT), pagesize=A4, leftMargin=MARGIN, rightMargin=MARGIN, topMargin=54,
