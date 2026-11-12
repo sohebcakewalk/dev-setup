@@ -3,7 +3,13 @@
 # mint a tagged Tailscale key, and join the clone to the tailnet.
 #
 # Run on the Mac that hosts OrbStack:
-#   ./newvm.sh <vmname> <devuser> [--tag NAME] [--login-link] [--base NAME]
+#   ./newvm.sh <vmname> <devuser> [--tag NAME] [--ollama ADDR] [--login-link] [--base NAME]
+#
+# --ollama ADDR: point every user of the VM at an Ollama server, normally the
+# one on this Mac, by setting OLLAMA_HOST system-wide in the clone.  ADDR is an
+# IP or host name, optionally with http(s):// and a port (default port 11434);
+# DEVSYS_OLLAMA_HOST in the environment is the default.  Use the Mac's LAN
+# address: an isolated machine cannot reach the Mac by its OrbStack host name.
 #
 # The VM joins Tailscale tagged tag:devsys + tag:<NAME>.  NAME defaults to
 # <devuser>; pass --tag to name the tag after the VM or the person instead, so
@@ -19,17 +25,18 @@
 # --login-link: create with NO auth key; the script prints a browser link and
 # the dev joins the VM to the tailnet under their own account.
 set -euo pipefail
-usage="usage: newvm.sh <vmname> <devuser> [--tag NAME] [--login-link] [--base NAME]"
+usage="usage: newvm.sh <vmname> <devuser> [--tag NAME] [--ollama ADDR] [--login-link] [--base NAME]"
 VM=${1:?$usage}
 DEVUSER=${2:?$usage}
 shift 2
 
-MODE="" BASE="${DEVSYS_BASE:-devsys-base}" TAG=""
+MODE="" BASE="${DEVSYS_BASE:-devsys-base}" TAG="" OLLAMA="${DEVSYS_OLLAMA_HOST:-}"
 while (($#)); do
   case $1 in
     --login-link) MODE="--login-link";;
     --base) BASE=${2:?$usage}; shift;;
     --tag) TAG=${2:?$usage}; shift;;
+    --ollama) OLLAMA=${2:?$usage}; shift;;
     *) echo "$usage" >&2; exit 1;;
   esac
   shift
@@ -44,6 +51,14 @@ command -v jq >/dev/null || { echo "jq not found." >&2; exit 1; }
 TAG=${TAG#tag:}
 TAG=${TAG:-$DEVUSER}
 [[ $TAG =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid tag name: $TAG (lowercase letters, digits, hyphens)" >&2; exit 1; }
+# The Ollama address is written into a shell profile in the clone, so it must be
+# nothing but a plain URL: scheme, host, port.
+if [[ -n $OLLAMA ]]; then
+  [[ $OLLAMA == http://* || $OLLAMA == https://* ]] || OLLAMA="http://$OLLAMA"
+  [[ $OLLAMA =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || {
+    echo "Invalid Ollama address: $OLLAMA (use an IP or host name, optionally with http:// and :port)" >&2; exit 1; }
+  [[ $OLLAMA =~ :[0-9]+$ ]] || OLLAMA="$OLLAMA:11434"
+fi
 
 # Prints the machine's state, or nothing when it does not exist.
 machine_state() { { orbctl info "$1" --format json 2>/dev/null || true; } | jq -r '.record.state // empty'; }
@@ -105,10 +120,20 @@ orbctl start "$VM"
 # the script below is a constant — nothing from this host is spliced into it.
 # shellcheck disable=SC2016  # expanded inside the machine, not here
 if ! printf '%s\n' "$KEY" | orbctl run -m "$VM" -u root \
-  env DEVSYS_UNATTENDED=1 DEVSYS_USER="$DEVUSER" DEVSYS_TS_HOSTNAME="$VM" bash -c '
+  env DEVSYS_UNATTENDED=1 DEVSYS_USER="$DEVUSER" DEVSYS_TS_HOSTNAME="$VM" DEVSYS_OLLAMA_HOST="$OLLAMA" bash -c '
     set -euo pipefail
     IFS= read -r key || true
     [ -x /usr/local/bin/devsys ] || { echo "The base has no devsys; re-run build-base.sh." >&2; exit 1; }
+    # Ollama address for every user of this VM, in both shells.
+    if [ -n "$DEVSYS_OLLAMA_HOST" ]; then
+      printf "export OLLAMA_HOST=%s\n" "$DEVSYS_OLLAMA_HOST" > /etc/profile.d/devsys-ollama.sh
+      chmod 0644 /etc/profile.d/devsys-ollama.sh
+      src="[ -f /etc/profile.d/devsys-ollama.sh ] && . /etc/profile.d/devsys-ollama.sh"
+      mkdir -p /etc/zsh
+      for rc in /etc/zsh/zshenv /etc/bash.bashrc; do
+        grep -qxF "$src" "$rc" 2>/dev/null || printf "%s\n" "$src" >> "$rc"
+      done
+    fi
     timeout 60 systemctl is-system-running --wait >/dev/null 2>&1 || true
     # Start from a clean Tailscale identity even if the base kept one.
     systemctl stop tailscaled 2>/dev/null || true
@@ -145,3 +170,4 @@ if [[ $MODE == --login-link ]]; then
 else
   echo "VM '$VM' created and joined to the tailnet — check admin/machines."
 fi
+[[ -z $OLLAMA ]] || echo "OLLAMA_HOST=$OLLAMA is set for every user of '$VM'."

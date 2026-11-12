@@ -305,6 +305,49 @@ orbctl run -m beehivekk -u root \\
       "and replaces 3.3.0 with it. That is safe again once `devsys-vm.sh` is republished to the gist as "
       "`devsys-v3.sh`.", "warn"),
 
+    CondPageBreak(200),
+    p("Ollama on the Mac, used from the VMs (optional)", "h1"),
+    p("A model served by Ollama on the Mac can be shared with every VM. The VMs only call Ollama's API over the "
+      "network; they still cannot see the Mac's files."),
+    p("On the Mac (once)", "h2"),
+    p("1. In the macOS account that runs Ollama, make it listen on the network, then quit and reopen Ollama:",
+      "step"),
+    code('launchctl setenv OLLAMA_HOST "0.0.0.0:11434"'),
+    p("2. Find the Mac's LAN address with `ipconfig getifaddr en0`, and reserve it in the router so it does not "
+      "change. Use this address, not a Tailscale name: an isolated VM cannot reach the Mac by its OrbStack host "
+      "name, and the Mac may be on a different tailnet from the VMs.", "step"),
+    p("The setting is lost on reboot, and Ollama runs only while that macOS account is logged in. After a "
+      "restart, log in to it, run the command again, then open Ollama.", "warn"),
+    p("For each VM", "h2"),
+    code("./newvm.sh beehivekk bh --tag beehivekk --ollama 192.168.1.50"),
+    p("`--ollama` sets `OLLAMA_HOST=http://192.168.1.50:11434` for every user of that VM, in zsh and bash, "
+      "including users added later. The golden base is not changed, so there is nothing to rebuild. To avoid "
+      "typing it each time, `export DEVSYS_OLLAMA_HOST=192.168.1.50` on the Mac before running `newvm.sh`. "
+      "For a VM that already exists:"),
+    code("""
+orbctl run -m beehivekk -u root bash -c '
+  f=/etc/profile.d/devsys-ollama.sh
+  echo "export OLLAMA_HOST=http://192.168.1.50:11434" > $f
+  for rc in /etc/zsh/zshenv /etc/bash.bashrc; do
+    echo "[ -f $f ] && . $f" >> $rc
+  done'
+"""),
+    p("Using it inside a VM", "h2"),
+    p("Check the connection, which also lists the models the Mac offers:"),
+    code("curl $OLLAMA_HOST/api/tags"),
+    p("Claude Code can run against it, because Ollama 0.14 and later speaks Anthropic's API:"),
+    code("""
+ANTHROPIC_BASE_URL=$OLLAMA_HOST ANTHROPIC_AUTH_TOKEN=ollama ANTHROPIC_API_KEY="" \\
+  claude --model <model-name>
+"""),
+    p("Use a model name exactly as `/api/tags` lists it. Ollama's documentation asks for a model that supports "
+      "tool calling and a context window of 64k tokens or more; with less, Claude Code cannot edit files or "
+      "loses track of the task. Tools that speak the OpenAI format use `$OLLAMA_HOST/v1` as their base URL."),
+    p("Ollama has no password. Listening on `0.0.0.0` opens it to every VM and every device on the Mac's "
+      "network. All developers share one model on one machine, so heavy use by one slows the others. The "
+      "`--ollama` option was tested with a build and clones; Claude Code against a remote Ollama follows "
+      "Ollama's documentation, which only shows the same-machine case, and was not run here.", "warn"),
+
     CondPageBreak(300),  # keep the heading with its table
     p("What a developer can and cannot reach", "h1"),
     p("Checked on OrbStack 2.2.4 with a base and two clones, as root inside a clone."),

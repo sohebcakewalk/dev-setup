@@ -136,8 +136,37 @@ Mints a single-use key tagged `tag:devsys` + `tag:beehivekk`, clones `devsys-bas
 - `--tag NAME` — name of the second Tailscale tag (`tag:NAME`). Name it after the VM or the person, so the Linux username can be anything and two VMs can both have a user called `admin`. Without it the tag is named after the username (`tag:bh`). `tag:NAME` must exist in the tailnet, owned by `tag:devsys`, and the developer's SSH rule should point at it; with users `autogroup:nonroot` in that rule, they can log in as any non-root user on their VM.
 - `--login-link` — no admin key; prints a `login.tailscale.com/a/…` link for the developer (they must already be a tailnet member).
 - `--base NAME` — clone from a different base machine.
+- `--ollama ADDR` — set `OLLAMA_HOST` for every user of the VM, pointing at an Ollama server (see below). `DEVSYS_OLLAMA_HOST` in the environment is the default.
 
 The VM joins with `--accept-dns=false`, so it keeps its own DNS and MagicDNS cannot break ordinary lookups such as npm. Turn it on for one VM with `tailscale set --accept-dns=true` inside it.
+
+### Ollama on the Mac, used from the VMs
+
+A model served by Ollama on the Mac can be shared with every VM. The VMs call Ollama's API over the network and still cannot see the Mac's files.
+
+On the Mac, in the macOS account that runs Ollama, make it listen on the network, then quit and reopen Ollama:
+
+```bash
+launchctl setenv OLLAMA_HOST "0.0.0.0:11434"
+```
+
+That setting is lost on reboot, and Ollama runs only while that account is logged in. Use the Mac's LAN address (`ipconfig getifaddr en0`), reserved in the router so it stays the same; an isolated VM cannot reach the Mac by its OrbStack host name, and the Mac may be on a different tailnet from the VMs.
+
+```bash
+./newvm.sh beehivekk bh --tag beehivekk --ollama 192.168.1.50
+```
+
+`--ollama` writes `/etc/profile.d/devsys-ollama.sh` in the clone and loads it from `/etc/zsh/zshenv` and `/etc/bash.bashrc`, so every user (including ones added later) gets `OLLAMA_HOST=http://192.168.1.50:11434`. An address without a port gets `:11434`. The golden base is not touched, so nothing needs rebuilding.
+
+Inside a VM, `curl $OLLAMA_HOST/api/tags` lists the models. Claude Code can use one, since Ollama 0.14 and later speaks Anthropic's API:
+
+```bash
+ANTHROPIC_BASE_URL=$OLLAMA_HOST ANTHROPIC_AUTH_TOKEN=ollama ANTHROPIC_API_KEY="" claude --model <model-name>
+```
+
+Ollama's documentation asks for a model with tool calling and a context window of 64k tokens or more. Tools that speak the OpenAI format use `$OLLAMA_HOST/v1`.
+
+Ollama has no password: listening on `0.0.0.0` opens it to every VM and every device on the Mac's network.
 
 ### A second user on the same VM
 
@@ -185,7 +214,11 @@ Tested on an Apple Silicon Mac (M1 Pro, OrbStack 2.2.4, stock macOS bash 3.2), n
 - Installer 3.3.0: a full base built with all 12 groups, and two clones made with `newvm.sh --login-link`. Each clone's connection to a listening port on the other was refused, in both directions; with one firewall stopped the connection went through, and it was refused again once restarted. The firewall came back after a machine restart. Loopback, DNS, outbound HTTPS and Redis kept working, and `devsys status` showed every tool.
 - Ubuntu 26.04 LTS (`ubuntu:resolute`, the default since this change): the same full build and two clones. All 12 groups installed, the dev user got zsh and passwordless `sudo` (26.04 ships `sudo-rs`), the locale fix and the firewall behaved as on 24.04, and `devsys status` showed every tool. The earlier results in this list were on 24.04.
 
+- `--ollama`: a slim base and three clones. With a bare IP, and with a full URL from `DEVSYS_OLLAMA_HOST`, every user (the first, one added afterwards, and root) saw `OLLAMA_HOST` in login and non-login zsh and bash; a clone made without it had no setting. Addresses containing spaces, paths or shell characters were refused before cloning.
+
 Not tested:
+
+- **Claude Code against a remote Ollama.** The command above follows Ollama's documentation, which only shows Ollama on the same machine.
 
 - **`--tag` against Tailscale.** The option was checked with stand-in `orbctl` and `curl` commands (it requests `tag:devsys` + `tag:NAME`), not with a real key mint.
 - **Key mode** — minting a real Tailscale key and joining the tailnet. That code is carried over from the Incus `newvm.sh`.
