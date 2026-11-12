@@ -107,12 +107,12 @@ story = [
     p("The system: three scripts in the `devsys-orbstack` folder. `build-base.sh` and `newvm.sh` run on the Mac; "
       "`devsys-vm.sh` (installer 3.3.0) runs inside the guest. You install the pinned toolchain once into a base "
       "machine called `devsys-base`, and every developer VM is a clone of it. Each clone joins Tailscale tagged "
-      "`tag:devsys` + `tag:<dev>`; the admin reaches every VM, each developer reaches only their own."),
+      "`tag:devsys` + a tag of its own; the admin reaches every VM, each developer reaches only their own."),
     p("Each VM runs **Ubuntu 26.04 LTS (resolute)**, arm64 on Apple Silicon, on OrbStack's shared Linux kernel."),
     table([
         ["Phase", "What", "How often", "Where"],
         ["0", "Prepare the Mac (OrbStack, the scripts)", "once", "the Mac"],
-        ["1", "Tailscale tags, SSH rules, OAuth client", "once, plus one tag and rule per developer",
+        ["1", "Tailscale tags, SSH rules, OAuth client", "once, plus one tag and rule per VM",
          "Tailscale admin console"],
         ["2", "Build the golden base", "once, and again to change tool versions", "the Mac"],
         ["3", "Clone a developer VM", "per developer", "the Mac"],
@@ -145,8 +145,8 @@ cd dev-setup/devsys-vm/devsys-orbstack
     table([
         ["Tag", "Owner"],
         ["`tag:devsys`", "`autogroup:admin, tag:devsys`"],
-        ["`tag:bh`", "`tag:devsys`"],
-        ["(one per future dev)", "`tag:devsys`"],
+        ["`tag:beehivekk`", "`tag:devsys`"],
+        ["(one per further VM)", "`tag:devsys`"],
     ], [0.45, 0.55]),
     p("`tag:devsys` must own itself — a key carrying two tags needs every tag, including `tag:devsys`, to pass "
       "the ownership check. Without it `newvm.sh` stops with “Auth key mint failed”.", "warn"),
@@ -156,11 +156,14 @@ cd dev-setup/devsys-vm/devsys-orbstack
         ["#", "Sources", "Destination", "Users"],
         ["1", "`autogroup:member`", "`autogroup:self`", "`autogroup:nonroot`, `root`"],
         ["2", "`autogroup:admin`", "`tag:devsys`", "`root`"],
-        ["3", "`bh@example.com`", "`tag:bh`", "`bh`"],
-        ["+1 per dev", "`<dev>@example.com`", "`tag:<dev>`", "`<dev>`"],
+        ["3", "`bh@github`", "`tag:beehivekk`", "`autogroup:nonroot`"],
+        ["+1 per VM", "`<login>@github`", "`tag:<vm>`", "`autogroup:nonroot`"],
     ], [0.14, 0.30, 0.24, 0.32]),
     p("Rule 2 is the admin's root reach across every VM; rules 3 and up let each developer into only their own "
       "VM. Never use `tag:devsys` as a source — it would let every VM reach every other VM."),
+    p("Sources is the developer's Tailscale login as the Users page shows it, for example `name@github` for "
+      "someone who signed up with GitHub. `autogroup:nonroot` lets them log in as any Linux user on their VM "
+      "except `root`, so usernames can be chosen freely; list names instead (`bh`, `admin`) to restrict it."),
 
     CondPageBreak(150),
     p("1.3 OAuth client, stored on the Mac", "h2"),
@@ -168,7 +171,7 @@ cd dev-setup/devsys-vm/devsys-orbstack
       "generate and paste keys by hand. Create it once: Settings → Trust credentials → Credential → OAuth, scope "
       "Auth Keys: Write, tag `tag:devsys`."),
     p("That one tag is enough for every developer. A client may mint a key for any tag its own tag owns, and "
-      "`tag:devsys` owns itself and each `tag:<dev>` (1.1). This follows Tailscale's documentation and has not "
+      "`tag:devsys` owns itself and each VM tag (1.1). This follows Tailscale's documentation and has not "
       "been run here; if minting is refused for a new developer, add their tag to the client as well."),
     p("Store the client ID and secret in the macOS Keychain:"),
     code("""
@@ -204,31 +207,35 @@ security add-generic-password -s ts-oauth -a tailscaleclientsecret -w '<secret>'
 
     p("Phase 3 — Clone a developer VM (per developer)", "h1"),
     p("3.1 Checklist for each developer", "h2"),
-    p("1. Tailscale → Tags: add `tag:<user>`, owned by `tag:devsys` (1.1).", "step"),
-    p("2. Tailscale → SSH rules: add the developer's email → `tag:<user>` → `<user>` (1.2).", "step"),
+    p("1. Tailscale → Tags: add `tag:<vm>`, owned by `tag:devsys` (1.1).", "step"),
+    p("2. Tailscale → SSH rules: add the developer's Tailscale login → `tag:<vm>` → `autogroup:nonroot` "
+      "(1.2).", "step"),
     p("3. On the Mac, in the `devsys-orbstack` folder:", "step"),
-    code("./newvm.sh beehivekk bh"),
-    p("The first argument is the VM name (lowercase letters, digits, hyphens). The second is the developer's "
-      "Linux username, and it also decides the tag: user `bh` gets `tag:bh`. Repeat the three steps for every "
-      "developer; nothing on the Mac or in the OAuth client changes between them. A developer who should own their "
-      "VM under their own Tailscale account can join with a login link instead (3.4)."),
+    code("./newvm.sh beehivekk bh --tag beehivekk"),
+    p("The first argument is the VM name (lowercase letters, digits, hyphens). The second is the first Linux "
+      "username to create; it can be anything (`bh`, `admin`, `nv`). `--tag` names the Tailscale tag, here after "
+      "the VM, so the SSH rule points at this one VM whatever its usernames are. Without `--tag` the tag is "
+      "named after the username (`tag:bh`), which only works while every VM has a different username."),
+    p("Repeat the three steps for every developer; nothing on the Mac or in the OAuth client changes between "
+      "them. A developer who should own their VM under their own Tailscale account can join with a login link "
+      "instead (3.4)."),
 
     p("3.2 What `newvm.sh` does", "h2"),
     p("1. **Checks first.** The base must exist and be stopped, and no machine may already have that name. A "
       "failed check stops the script before anything is asked of Tailscale.", "step"),
     p("2. **Reads the OAuth client** from the environment, the mode-600 file, or the Keychain (1.3).", "step"),
     p("3. **Gets a temporary access token** from Tailscale with that client.", "step"),
-    p("4. **Mints an auth key** tagged `tag:devsys` + `tag:bh`: single-use, not ephemeral, pre-approved, "
+    p("4. **Mints an auth key** tagged `tag:devsys` + `tag:beehivekk`: single-use, not ephemeral, pre-approved, "
       "valid for one hour.", "step"),
     p("5. **Clones** `devsys-base` and starts the clone.", "step"),
     p("6. **Sets up the clone**: clears any Tailscale state, creates the user, and joins the tailnet with "
       "`tailscale up --ssh --accept-dns=false --accept-routes=true`.", "step"),
     p("The key never appears on screen, in a file, or in a command line; it is handed to the clone on stdin. The "
-      "tags are always right because the script derives them from the username."),
+      "second tag is the one given with `--tag`, or the username when `--tag` is left out."),
     table([
         ["Key setting", "Why it matters"],
         ["Not ephemeral", "an ephemeral VM is removed from the tailnet whenever it goes offline"],
-        ["Both tags", "`tag:devsys` gives the admin root reach; `tag:<user>` is what the developer's SSH rule "
+        ["Both tags", "`tag:devsys` gives the admin root reach; `tag:<vm>` is what the developer's SSH rule "
                       "points at"],
         ["Pre-approved", "the VM joins without waiting for device approval"],
         ["Single-use, one hour", "a leaked key cannot add a second machine"],
@@ -246,9 +253,9 @@ security add-generic-password -s ts-oauth -a tailscaleclientsecret -w '<secret>'
 orbctl run -m beehivekk -u root \\
   env DEVSYS_UNATTENDED=1 DEVSYS_USER=admin devsys install none
 """),
-    p("The new user gets the same shell setup, `~/work` folder and tools. Tailscale is not touched. Then add the "
-      "username to the SSH rule of whoever will log in as it: rule 2 for tailnet admins (users `root`, `admin`), "
-      "or the developer's own rule (users `bh`, `admin`)."),
+    p("The new user gets the same shell setup, `~/work` folder and tools. Tailscale is not touched. A rule whose "
+      "users are `autogroup:nonroot` (1.2) already lets the developer log in as the new user. If your rule lists "
+      "usernames instead, add this one to it."),
     p("Every user the script creates has passwordless `sudo`, so `admin` has no more rights than `bh`. To make "
       "one of them an ordinary user, remove its sudo access:"),
     code("""
@@ -269,7 +276,7 @@ orbctl run -m beehivekk -u root \\
       "`orbctl run -m beehivekk -u root devsys ts-login`."),
     table([
         ["", "Automatic key (3.1)", "Login link (3.4)"],
-        ["VM owner in Tailscale", "the tailnet (tagged `tag:devsys` + `tag:<user>`)", "the developer"],
+        ["VM owner in Tailscale", "the tailnet (tagged `tag:devsys` + `tag:<vm>`)", "the developer"],
         ["Tailscale setup per developer", "one tag and one SSH rule", "none, just the invite"],
         ["Developer's SSH access", "their own rule (rule 3)", "rule 1: members reach their own devices"],
         ["Admin `ssh root@<vm>`", "yes (rule 2)", "no: the VM has no `tag:devsys`; use `orbctl run` from the Mac"],
@@ -340,8 +347,8 @@ orbctl run -m beehivekk -u root \\
         ["`A machine named '…' already exists`", "pick another name, or `orbctl delete` the old one"],
         ["`No Tailscale OAuth client`", "store the client ID and secret (Phase 1.3)"],
         ["`OAuth token exchange failed`", "the stored ID or secret is wrong or revoked"],
-        ["`Auth key mint failed`", "`tag:<dev>` is missing or not owned by `tag:devsys`, or `tag:devsys` "
-                                   "does not own itself (Phase 1.1). If both are right, add `tag:<dev>` to the "
+        ["`Auth key mint failed`", "the VM tag is missing or not owned by `tag:devsys`, or `tag:devsys` "
+                                   "does not own itself (Phase 1.1). If both are right, add the VM tag to the "
                                    "OAuth client (1.3)"],
         ["“not permit you to SSH as user X”", "no SSH rule lists that username for this VM's tag (Phase 1.2, 3.3)"],
     ], [0.42, 0.58]),
