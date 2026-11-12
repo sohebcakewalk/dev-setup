@@ -344,7 +344,11 @@ ANTHROPIC_BASE_URL=$OLLAMA_HOST ANTHROPIC_AUTH_TOKEN=ollama ANTHROPIC_API_KEY=""
       "tool calling and a context window of 64k tokens or more; with less, Claude Code cannot edit files or "
       "loses track of the task. Tools that speak the OpenAI format use `$OLLAMA_HOST/v1` as their base URL."),
     p("Ollama has no password. Listening on `0.0.0.0` opens it to every VM and every device on the Mac's "
-      "network. All developers share one model on one machine, so heavy use by one slows the others. The "
+      "network, and that includes its management API: anyone who can reach it can pull, delete or replace "
+      "models, not only run them. Use it only on a network you trust. To restrict it, put a reverse proxy with "
+      "a password in front of Ollama that passes only the chat and model-list endpoints, and keep Ollama itself "
+      "on `127.0.0.1`; that setup is not part of these scripts.", "warn"),
+    p("All developers share one model on one machine, so heavy use by one slows the others. The "
       "`--ollama` option was tested with a build and clones; Claude Code against a remote Ollama follows "
       "Ollama's documentation, which only shows the same-machine case, and was not run here.", "warn"),
 

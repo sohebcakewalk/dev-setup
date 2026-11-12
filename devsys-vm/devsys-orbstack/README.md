@@ -166,7 +166,7 @@ ANTHROPIC_BASE_URL=$OLLAMA_HOST ANTHROPIC_AUTH_TOKEN=ollama ANTHROPIC_API_KEY=""
 
 Ollama's documentation asks for a model with tool calling and a context window of 64k tokens or more. Tools that speak the OpenAI format use `$OLLAMA_HOST/v1`.
 
-Ollama has no password: listening on `0.0.0.0` opens it to every VM and every device on the Mac's network.
+Ollama has no password: listening on `0.0.0.0` opens it to every VM and every device on the Mac's network. That includes its management API, so anyone who can reach it can pull, delete or replace models, not only run them. Use it only on a network you trust. To restrict it, put a reverse proxy with a password in front of Ollama that passes only the chat and model-list endpoints, and keep Ollama itself on `127.0.0.1`; that setup is not part of these scripts.
 
 ### A second user on the same VM
 
