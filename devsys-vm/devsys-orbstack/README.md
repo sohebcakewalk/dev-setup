@@ -128,11 +128,12 @@ The OAuth client (scope Auth Keys: Write) lets `newvm.sh` mint one auth key per 
 ## Per developer: clone a VM
 
 ```bash
-./newvm.sh beehivekk bh
+./newvm.sh beehivekk bh --tag beehivekk
 ```
 
-Mints a single-use key tagged `tag:devsys` + `tag:bh`, clones `devsys-base`, creates the `bh` user, and joins Tailscale. Reach it as `ssh bh@beehivekk` over the tailnet.
+Mints a single-use key tagged `tag:devsys` + `tag:beehivekk`, clones `devsys-base`, creates the `bh` user, and joins Tailscale. Reach it as `ssh bh@beehivekk` over the tailnet.
 
+- `--tag NAME` — name of the second Tailscale tag (`tag:NAME`). Name it after the VM or the person, so the Linux username can be anything and two VMs can both have a user called `admin`. Without it the tag is named after the username (`tag:bh`). `tag:NAME` must exist in the tailnet, owned by `tag:devsys`, and the developer's SSH rule should point at it; with users `autogroup:nonroot` in that rule, they can log in as any non-root user on their VM.
 - `--login-link` — no admin key; prints a `login.tailscale.com/a/…` link for the developer (they must already be a tailnet member).
 - `--base NAME` — clone from a different base machine.
 
@@ -186,6 +187,7 @@ Tested on an Apple Silicon Mac (M1 Pro, OrbStack 2.2.4, stock macOS bash 3.2), n
 
 Not tested:
 
+- **`--tag` against Tailscale.** The option was checked with stand-in `orbctl` and `curl` commands (it requests `tag:devsys` + `tag:NAME`), not with a real key mint.
 - **Key mode** — minting a real Tailscale key and joining the tailnet. That code is carried over from the Incus `newvm.sh`.
 - **The firewall with a joined VM.** The test clones were not on a tailnet, so Tailscale SSH and `devsys serve` through the firewall were not exercised. The rules accept everything on `tailscale0`.
 - `DEVSYS_SHARED_CLAUDE=1` on OrbStack.

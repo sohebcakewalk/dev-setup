@@ -3,7 +3,11 @@
 # mint a tagged Tailscale key, and join the clone to the tailnet.
 #
 # Run on the Mac that hosts OrbStack:
-#   ./newvm.sh <vmname> <devuser> [--login-link] [--base NAME]
+#   ./newvm.sh <vmname> <devuser> [--tag NAME] [--login-link] [--base NAME]
+#
+# The VM joins Tailscale tagged tag:devsys + tag:<NAME>.  NAME defaults to
+# <devuser>; pass --tag to name the tag after the VM or the person instead, so
+# the Linux username can be anything (two VMs may both have a user "admin").
 #
 # Credentials: the Tailscale OAuth client is read, in this order, from
 #   1. the environment: DEVSYS_TS_CLIENT_ID / DEVSYS_TS_CLIENT_SECRET
@@ -15,16 +19,17 @@
 # --login-link: create with NO auth key; the script prints a browser link and
 # the dev joins the VM to the tailnet under their own account.
 set -euo pipefail
-usage="usage: newvm.sh <vmname> <devuser> [--login-link] [--base NAME]"
+usage="usage: newvm.sh <vmname> <devuser> [--tag NAME] [--login-link] [--base NAME]"
 VM=${1:?$usage}
 DEVUSER=${2:?$usage}
 shift 2
 
-MODE="" BASE="${DEVSYS_BASE:-devsys-base}"
+MODE="" BASE="${DEVSYS_BASE:-devsys-base}" TAG=""
 while (($#)); do
   case $1 in
     --login-link) MODE="--login-link";;
     --base) BASE=${2:?$usage}; shift;;
+    --tag) TAG=${2:?$usage}; shift;;
     *) echo "$usage" >&2; exit 1;;
   esac
   shift
@@ -35,6 +40,10 @@ command -v jq >/dev/null || { echo "jq not found." >&2; exit 1; }
 # Both names end up in a JSON body and a hostname, so keep them strict.
 [[ $VM =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid VM name: $VM (lowercase letters, digits, hyphens)" >&2; exit 1; }
 [[ $DEVUSER =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "Invalid Linux username: $DEVUSER" >&2; exit 1; }
+# The tag also ends up in the JSON body.  "tag:" is added below, so drop it if given.
+TAG=${TAG#tag:}
+TAG=${TAG:-$DEVUSER}
+[[ $TAG =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Invalid tag name: $TAG (lowercase letters, digits, hyphens)" >&2; exit 1; }
 
 # Prints the machine's state, or nothing when it does not exist.
 machine_state() { { orbctl info "$1" --format json 2>/dev/null || true; } | jq -r '.record.state // empty'; }
@@ -73,11 +82,11 @@ if [[ $MODE != --login-link ]]; then
   RESP=$(printf 'Authorization: Bearer %s\n' "$TOKEN" | \
     curl -s -X POST https://api.tailscale.com/api/v2/tailnet/-/keys \
     -H @- -H "Content-Type: application/json" \
-    -d "{\"capabilities\":{\"devices\":{\"create\":{\"reusable\":false,\"ephemeral\":false,\"preauthorized\":true,\"tags\":[\"tag:devsys\",\"tag:${DEVUSER}\"]}}},\"expirySeconds\":3600}")
+    -d "{\"capabilities\":{\"devices\":{\"create\":{\"reusable\":false,\"ephemeral\":false,\"preauthorized\":true,\"tags\":[\"tag:devsys\",\"tag:${TAG}\"]}}},\"expirySeconds\":3600}")
   KEY=$(jq -r .key <<<"$RESP")
   [[ $KEY == tskey-auth-* ]] || {
     echo "Auth key mint failed: $(jq -r '.message // .' <<<"$RESP")" >&2
-    echo "Hint: tagOwners must have 'tag:${DEVUSER}' owned by tag:devsys, and" >&2
+    echo "Hint: tagOwners must have 'tag:${TAG}' owned by tag:devsys, and" >&2
     echo "tag:devsys must own ITSELF: \"tag:devsys\": [\"autogroup:admin\", \"tag:devsys\"]" >&2
     exit 1
   }
